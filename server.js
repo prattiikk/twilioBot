@@ -24,89 +24,105 @@ const authToken = process.env.TWILIO_AUTH_TOKEN || 'your_auth_token';
 // Initialize Twilio client
 const client = twilio(accountSid, authToken);
 
-// Function to send a message
-function sendMessage(to, message) {
-    client.messages
-        .create({
-            from: 'whatsapp:+14155238886', // Twilio's WhatsApp sandbox number
-            to: to, // Recipient's phone number
-            body: message, // Message content
-        })
-        .then((msg) => console.log(`Message sent successfully! SID: ${msg.sid}`))
-        .catch((err) => console.error(`Failed to send message: ${err.message}`));
-}
-
+// Directory for uploaded files
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// In-memory store for file metadata
+const fileMetadataStore = {};
+
+// Function to send a message
+function sendMessage(to, message) {
+  client.messages
+    .create({
+      from: 'whatsapp:+14155238886', // Twilio's WhatsApp sandbox number
+      to: to, // Recipient's phone number
+      body: message, // Message content
+    })
+    .then((msg) => console.log(`Message sent successfully! SID: ${msg.sid}`))
+    .catch((err) => console.error(`Failed to send message: ${err.message}`));
 }
 
 app.post('/webhook', async (req, res) => {
   const { From, Body, MediaUrl0, MediaContentType0 } = req.body;
-
   console.log(`Message received from ${From}: ${Body}`);
 
   if (MediaUrl0) {
-      try {
-          // Ensure uploads directory exists with correct permissions
-          fs.mkdirSync(uploadDir, { recursive: true, mode: 0o755 });
+    try {
+      const mediaResponse = await axios.get(MediaUrl0, {
+        responseType: 'stream',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        },
+      });
 
-          // Verify MediaUrl0 is not undefined
-          if (!MediaUrl0) {
-              throw new Error('No media URL provided');
-          }
+      const fileExtension = MediaContentType0 ? MediaContentType0.split('/')[1] : 'unknown';
+      const fileType = MediaContentType0 ? MediaContentType0.split('/')[0] : 'unknown';
+      const fileName = `uploaded_media_${Date.now()}.${fileExtension}`;
+      const filePath = path.join(uploadDir, fileName);
 
-          // Download media with authentication
-          const mediaResponse = await axios.get(MediaUrl0, {
-              responseType: 'stream',
-              headers: {
-                  'Authorization': `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`
-              }
-          });
+      const writer = fs.createWriteStream(filePath);
+      mediaResponse.data.pipe(writer);
 
-          const fileExtension = MediaContentType0 ? MediaContentType0.split('/')[1] : 'unknown';
-          const fileName = `uploaded_media_${Date.now()}.${fileExtension}`;
-          const filePath = path.join(uploadDir, fileName);
+      writer.on('finish', () => {
+        console.log(`Media file saved to: ${filePath}`);
 
-          const writer = fs.createWriteStream(filePath);
-          mediaResponse.data.pipe(writer);
+        // Store file metadata for later tagging
+        fileMetadataStore[From] = {
+          fileName,
+          fileType,
+          filePath,
+          timestamp: Date.now(),
+        };
 
-          writer.on('finish', () => {
-              console.log(`Media file saved to: ${filePath}`);
-              const twiml = new MessagingResponse();
-              twiml.message('Media file received successfully!');
-              res.type('text/xml').send(twiml.toString());
-          });
+        // Ask the user for a description
+        const twiml = new MessagingResponse();
+        twiml.message(
+          `Your ${fileType} has been uploaded. Please provide a few related keywords or a description to tag this file for future reference. start the response with\nDescription: `
+        );
+        res.type('text/xml').send(twiml.toString());
+      });
 
-          writer.on('error', (err) => {
-              console.error(`File write error: ${err.message}`);
-              res.status(500).send('Failed to save media file');
-          });
+      writer.on('error', (err) => {
+        console.error(`File write error: ${err.message}`);
+        res.status(500).send('Failed to save media file');
+      });
+    } catch (error) {
+      console.error(`Media download error: ${error.message}`);
+      res.status(500).send('Failed to process media file');
+    }
+  } else if (Body && Body.startsWith('Description:')) {
+    // Extract description and update metadata
+    const description = Body.replace('Description:', '').trim();
+    if (fileMetadataStore[From]) {
+      fileMetadataStore[From].description = description;
+      console.log(`Metadata updated: ${JSON.stringify(fileMetadataStore[From])}`);
 
-      } catch (error) {
-          console.error(`Media download error: ${error.message}`);
-          console.error('Error details:', error);
-          res.status(500).send('Failed to process media file');
-      }
-  } else {
-      // Handle text messages as before
       const twiml = new MessagingResponse();
-      twiml.message('Thanks for your message!');
+      twiml.message('Thank you! Your file has been tagged successfully.');
       res.type('text/xml').send(twiml.toString());
+    } else {
+      const twiml = new MessagingResponse();
+      twiml.message(
+        'We couldn’t find a recently uploaded file to associate this description with. Please try uploading again.'
+      );
+      res.type('text/xml').send(twiml.toString());
+    }
+  } else {
+    const twiml = new MessagingResponse();
+    twiml.message('Thanks for your message!');
+    res.type('text/xml').send(twiml.toString());
   }
-});
-// Simple endpoint for testing connectivity
-app.post('/hi', (req, res) => {
-    console.log('Hi there!');
-    res.send({ msg: 'Hi there!' });
 });
 
 // Health check route
 app.get('/', (req, res) => {
-    res.send('Server is running!');
+  res.send('Server is running!');
 });
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
