@@ -1,0 +1,50 @@
+Here’s a **list of features** to work on for your project:
+
+---
+
+### **Core Features**
+1. **Reminders**  
+   - Create and manage reminders with natural language input.
+   - Notifications for reminders (in-app, email, etc.).
+
+2. **To-Do List**  
+   - Add, edit, delete, and organize tasks.
+   - Support for cross-list tasks (e.g., adding tasks to multiple categories).
+
+3. **File-Based Suggestions**  
+   - Generate suggestions for files using an LLM (e.g., summarize, save, etc.).
+   - Actions based on suggestions (e.g., "Add summary to Work to-do list").
+
+---
+
+### **Advanced Features**
+4. **Dynamic Task and Reminder Management**  
+   - Enable bulk actions (e.g., mark all tasks as complete).
+   - Manage reminders and tasks dynamically via commands.
+
+5. **Voice Commands**  
+   - Use voice-to-text for task and reminder creation.
+   - Interpret commands like `"Set a reminder for tomorrow at 10 AM."`
+
+6. **Cross-Feature Integration**  
+   - Link files to tasks or reminders.
+   - Enable tasks and files to interact seamlessly.
+
+---
+
+### **Bonus Features**
+7. **Recurring Reminders**  
+   - Allow users to set reminders that repeat on a schedule.
+
+8. **Collaborative To-Do Lists**  
+   - Share tasks with other users for collaboration.
+
+9. **Smart Search**  
+   - Search files, reminders, and tasks using NLP.
+
+10. **Notification Settings**  
+    - Allow users to customize how and when they receive notifications.
+
+---
+
+Let me know if you'd like me to prioritize or refine these further! 

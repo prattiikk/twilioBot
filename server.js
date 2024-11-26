@@ -39,28 +39,33 @@ if (!fs.existsSync(uploadDir)) {
 // In-memory store for file metadata
 const fileMetadataStore = {};
 
-// // Function to send a message
-// async function sendMessage(to, message) {
-//   try {
-//     const msg = await client.messages.create({
-//       from: 'whatsapp:+14155238886', // Twilio's WhatsApp sandbox number
-//       to: to, // Recipient's phone number
-//       body: message, // Message content
-//     });
-//     console.log(`Message sent successfully! SID: ${msg.sid}`);
-//   } catch (err) {
-//     console.error(`Failed to send message: ${err.message}`);
-//   }
-// }
+// Function to send a message
+async function sendMessage(to, message) {
+  try {
+    // Ensure 'whatsapp:' prefix is added if not already present
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+
+    const msg = await client.messages.create({
+      from: 'whatsapp:+14155238886', // Twilio's WhatsApp sandbox number
+      to: formattedTo, // Recipient's phone number with whatsapp: prefix
+      body: message, // Message content
+    });
+
+    console.log(`Message sent successfully! SID: ${msg.sid}`);
+  } catch (err) {
+    console.error(`Failed to send message: ${err.message}`);
+  }
+}
 
 // Function to send a media file
-function sendMediaFile(mediaUrl, caption = '') {
+function sendMediaFile(to, mediaUrl, caption = '') {
   console.log("trying to send that file to the user .........................!")
-
+  // Ensure 'whatsapp:' prefix is added if not already present
+  const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
   client.messages
     .create({
       from: 'whatsapp:+14155238886', // Twilio's WhatsApp sandbox number or your Twilio WhatsApp number
-      to: "whatsapp:+917058385245", // Recipient's WhatsApp number
+      to: formattedTo, // Recipient's WhatsApp number
       mediaUrl: [mediaUrl], // Array of media URLs
       body: caption, // Optional caption for the media
     })
@@ -175,6 +180,7 @@ async function interpretQuery(query) {
 
 // Webhook route to handle incoming WhatsApp messages
 app.post('/webhook', async (req, res) => {
+
   try {
     const {
       From,     // Sender's WhatsApp number (full format with country code)
@@ -195,6 +201,8 @@ app.post('/webhook', async (req, res) => {
     // Example of extracting just the phone number without the 'whatsapp:' prefix
     const senderPhoneNumber = From.replace('whatsapp:', '');
     const recipientPhoneNumber = To.replace('whatsapp:', '');
+
+    sendMessage(senderPhoneNumber, "Let me figure that out...!");
 
     console.log(`Parsed Phone Numbers:`, {
       sender: senderPhoneNumber,
@@ -222,40 +230,39 @@ app.post('/webhook', async (req, res) => {
 
       // Interpret text message intent
       const intentResult = await interpretQuery(Body);
+      const twiml = new MessagingResponse();
       if (intentResult.success) {
-        const twiml = new MessagingResponse();
-
         // Customize response based on the detected action
         switch (intentResult.action) {
           case 'setReminder':
+            // sendMessage(senderPhoneNumber, `✅ Reminder set successfully! Message: ${intentResult.msg}`);
             twiml.message(`✅ Reminder set successfully! Message: ${intentResult.msg}`);
             break;
 
           case 'searchFiles':
-            if (intentResult.fileUrl) {
-              const mediaMessage = twiml.message(`📂 File found!`);
-              // mediaMessage.media(intentResult.fileUrl); // Attach media URL to the message
-              sendMediaFile(intentResult.fileUrl, "your file")
-            } else {
-              twiml.message(`❌ No files found matching your query.`);
-            }
+            // sendMediaFile(senderPhoneNumber, intentResult.fileUrl, 'Here is the file you requested!');
+            const mediaMessage = twiml.message('Here is the file you requested!');
+            mediaMessage.media(intentResult.fileUrl);
             break;
 
           case 'createTodo':
-            twiml.message(`📝 Todo created! Message: ${intentResult.msg}`);
+            // sendMessage(senderPhoneNumber, `✅ Task added successfully: ${intentResult.msg}`);
+            twiml.message(`✅ Task added successfully: ${intentResult.msg}`);
             break;
 
           default:
-            twiml.message(`❓ Sorry, I couldn't understand your request. Please try again.`);
+            // sendMessage(senderPhoneNumber, 'Unknown action detected.');
+            twiml.message('Unknown action detected.');
             break;
         }
 
         // Send the Twilio response
         return res.type('text/xml').send(twiml.toString());
       } else {
-        // Handle cases where intent could not be determined
-        const twiml = new MessagingResponse();
+
+        // sendMessage(recipientPhoneNumber, `⚠️ Oops! I couldn't process your request. Please try again.`);
         twiml.message(`⚠️ Oops! I couldn't process your request. Please try again.`);
+
         return res.type('text/xml').send(twiml.toString());
       }
     }
