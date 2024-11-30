@@ -19,7 +19,6 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 
-// Validate Twilio credentials
 if (!accountSid || !authToken) {
   console.error('Missing Twilio credentials. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in .env');
   process.exit(1);
@@ -34,36 +33,49 @@ const userRequests = {};
 // Function to send a message
 async function sendMessage(to, message) {
   try {
-    // Ensure 'whatsapp:' prefix is added if not already present
     const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
-
     const msg = await client.messages.create({
-      from: 'whatsapp:+14155238886', // Twilio's WhatsApp sandbox number
-      body: message, // Message body
-      to: formattedTo, // Recipient's phone number with whatsapp: prefix
+      from: 'whatsapp:+14155238886',
+      body: message,
+      to: formattedTo,
     });
-
     console.log(`Message sent successfully! SID: ${msg.sid}`);
   } catch (err) {
     console.error(`Failed to send message: ${err.message}`);
   }
 }
 
+// Function to send the file menu
+function sendFileMenu(to) {
+  try {
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+    client.messages
+      .create({
+        from: 'whatsapp:+14155238886',
+        contentSid: 'HX48616562cd2739a84633025b1bc23d86',
+        to: formattedTo,
+      })
+      .then((message) => console.log(`Menu sent with SID: ${message.sid}`))
+      .catch((err) => console.error(`Error sending menu: ${err}`));
+  } catch (err) {
+    console.error(`Error in sendFileMenu: ${err.message}`);
+  }
+}
+
 // Initialize Hugging Face client
 const llmclient = new HfInference(process.env.HUGGING_FACE_API_KEY);
 
-// Function to reply as a bot
+// Function to generate bot responses
 async function replyAsABotToThisUserQuery(query) {
   try {
-    // Contextual prompt for file management bot
     const promptTemplate = `
 You are an AI WhatsApp file management bot with three core functionalities:
 1. Upload files to S3 cloud storage
 2. Retrieve files from S3
 3. Convert files between formats
 
-create a simple and short reply to the query form the user based on the rules listed below
-users query : ${query}
+create a simple and short reply to the query from the user based on the rules listed below
+users query: ${query}
 
 Interaction Rules:
 - Always provide a direct, concise response
@@ -75,25 +87,20 @@ Interaction Rules:
 
 Response Strategy:
 - If query is about bot usage: Explain file upload, retrieval, conversion
-- If query is unclear: Guide user to upload a file or clarify request
+- If query is unclear: Guide user to upload a file first
 - Focus on making file management simple and intuitive
 - Encourage user to take specific action
+- Everything except the search needs a file to be uploaded first, so upload the file first
 
-Tone: Helpful, conversational, straightforward , professional
+Tone: Helpful, conversational, straightforward, professional
 Goal: Make file management easy and quick
 `;
-    const reminderDetails = await llmclient.textGeneration({
-      model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    const response = await llmclient.textGeneration({
+      model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
       inputs: promptTemplate,
-      max_new_tokens: 150
+      max_new_tokens: 150,
     });
-
-    // Clean and format the response
-    const reply = reminderDetails.generated_text
-      .replace(promptTemplate, '')  // Remove the original prompt
-      .trim();
-
-    return reply || "Hi there! I'm your file management assistant. I can help you store, organize, and convert files easily. How can I assist you today?";
+    return response.generated_text.trim() || "Hi there! I'm your file management assistant. How can I help you today?";
   } catch (error) {
     console.error('Error generating bot response:', error);
     return "Sorry, I'm having trouble processing your request right now. Please try again or send your file.";
@@ -101,67 +108,80 @@ Goal: Make file management easy and quick
 }
 
 // Webhook route to handle incoming WhatsApp messages
-// Webhook route to handle incoming WhatsApp messages
 app.post('/webhook', async (req, res) => {
   try {
-    const { From, To, Body, MediaUrl0 } = req.body;
+    const { From, Body, MediaUrl0 } = req.body;
 
-    // Check if the request contains either a Body message or MediaUrl0
     if (!Body && !MediaUrl0) {
-      console.log('Invalid request: Missing both Body and MediaUrl0');
       return res.status(400).send('Bad Request: Missing message or media URL');
     }
 
-    // Store the req.body when a file is received
-    if (MediaUrl0) {
-      userRequests[From] = req.body;
-      console.log(`Received file from ${From}: ${MediaUrl0}`);
-      sendFileMenu(From);  // Send the menu to the user after file upload
+    if (!userRequests[From]) {
+      userRequests[From] = { status: 'idle' };
     }
 
-    // Check if the user already has an active request
-    if (userRequests[From]) {
-      console.log(`User ${From} has an active request. Skipping bot reply.`);
-      return res.status(200).send('Webhook processed');
-    }
-
-    // Handle text-based messages (only if no active request is ongoing)
-    if (Body) {
-      const reply = await replyAsABotToThisUserQuery(Body);
-      sendMessage(From, reply);
-    }
-
-    console.log("Message: ", Body);
-
-    switch (Body) {
-      case "convert":
-        // Send the conversion menu (or handle conversion logic)
-        break;
-      case "upload":
-        // Handle file upload using the stored req.body data
-        if (userRequests[From]) {
-          const storedRequest = userRequests[From];
-
-          const payload = {
-            ...storedRequest,
-            fileUrl: storedRequest.MediaUrl0,  // File URL from stored req.body
-          };
-
-          // Call the Kestra workflow to upload the file
-          await axios.post('http://localhost:8080/api/v1/executions/webhook/webhooks/webhook-logger/twilio', payload, {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
-
-          // Optionally, clear the stored data after upload
-          delete userRequests[From];
+    switch (userRequests[From].status) {
+      case 'idle':
+        if (MediaUrl0) {
+          userRequests[From] = { ...req.body, status: 'awaitingFileName' };
+          console.log(`Received file from ${From}: ${MediaUrl0}`);
+          await sendMessage(From, "Please provide a name for the uploaded file.");
         } else {
-          console.log(`No stored data found for ${From}`);
+          // const reply = await replyAsABotToThisUserQuery(Body);
+          await sendMessage(From, reply);
         }
         break;
+
+      case 'awaitingFileName':
+        if (Body) {
+          userRequests[From].fileName = Body;
+          userRequests[From].status = 'fileNamed';
+          console.log(`File named by ${From}: ${Body}`);
+          sendFileMenu(From);
+        } else {
+          await sendMessage(From, "Please provide a name for your file.");
+        }
+        break;
+
+      case 'fileNamed':
+        switch (Body.toLowerCase()) {
+          case 'upload':
+            const payload = {
+              ...userRequests[From],
+              fileUrl: userRequests[From].MediaUrl0,
+              fileName: userRequests[From].fileName
+            };
+
+            try {
+              await axios.post('http://localhost:8080/api/v1/executions/webhook/webhooks/webhook-logger/twilio', payload, {
+                headers: { 'Content-Type': 'application/json' },
+              });
+              console.log("requested to the kestra to execute the rest .....!");
+
+              delete userRequests[From];
+              await sendMessage(From, "Your file has been successfully uploaded!");
+            } catch (uploadError) {
+              console.error('Upload error:', uploadError);
+              await sendMessage(From, "Sorry, there was an error uploading your file. Please try again.");
+              delete userRequests[From];
+            }
+            break;
+
+          case 'convert':
+            await sendMessage(From, "File conversion is coming soon. Stay tuned!");
+            break;
+
+          default:
+            const reply = await replyAsABotToThisUserQuery(Body);
+            await sendMessage(From, reply);
+            break;
+        }
+        break;
+
       default:
-        console.log(`Unknown command: ${Body}`);
+        await sendMessage(From, "Unexpected state. Please try again.");
+        delete userRequests[From];
+        break;
     }
 
     res.status(200).send('Webhook processed');
@@ -170,8 +190,6 @@ app.post('/webhook', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
-
-
 // Health check route
 app.get('/', (req, res) => {
   res.send('Server is running!');
