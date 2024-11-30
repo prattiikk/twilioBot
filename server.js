@@ -15,6 +15,7 @@ const {
   compressImage,
   convertImageToBlackAndWhite
 } = require('./conversions/ImgConversions');
+const { uploadFileToS3 } = require('./utils/s3');
 // Load environment variables
 dotenv.config();
 
@@ -47,6 +48,21 @@ async function sendMessage(to, message) {
     const msg = await client.messages.create({
       from: 'whatsapp:+14155238886',
       body: message,
+      to: formattedTo,
+    });
+    console.log(`Message sent successfully! SID: ${msg.sid}`);
+  } catch (err) {
+    console.error(`Failed to send message: ${err.message}`);
+  }
+}
+
+async function sendMedia(to, url, message = "success!") {
+  try {
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+    const msg = await client.messages.create({
+      from: 'whatsapp:+14155238886',
+      body: message,
+      mediaUrl: url,
       to: formattedTo,
     });
     console.log(`Message sent successfully! SID: ${msg.sid}`);
@@ -272,30 +288,67 @@ app.post('/webhook', async (req, res) => {
         switch (Body.trim()) {
 
           case 'pdf':
-            await docxToPdf(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.pdf'));
-            await sendMessage(From, "Word document converted to PDF successfully.");
+            let inputPath = userRequests[From].filePath;
+            let outputPath = userRequests[From].filePath.replace('.docx', '.pdf')
+            await docxToPdf(inputPath, outputPath);
+            // await sendMessage(From, "Word document converted to PDF successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Word document converted to PDF successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
             delete userRequests[From];
             break;
 
           case 'text':
             // Convert the DOCX to Text
-            await docxToTxt(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.txt'));
-            await sendMessage(From, "Word document converted to Text successfully.");
+            inputPath = userRequests[From].filePath;
+            outputPath = userRequests[From].filePath.replace('.docx', '.txt')
+            await docxToTxt(inputPath, outputPath);
+            // await sendMessage(From, "Word document converted to Text successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Word document converted to Text successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
             delete userRequests[From];
             break;
 
           case 'html':
             // Convert the DOCX to HTML
-            await docxToHtml(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.html'));
-            await sendMessage(From, "Word document converted to HTML successfully.");
+            inputPath = userRequests[From].filePath;
+            outputPath = userRequests[From].filePath.replace('.docx', '.html')
+            await docxToHtml(inputPath, outputPath);
+            try {
+              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Word document converted to html successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Word document converted to HTML successfully.");
             delete userRequests[From];
             break;
 
           case 'markdown':
-            await docxToMarkdown(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.html'));
-            await sendMessage(From, "Word document converted to MARKDOWN successfully.");
+            // Convert the DOCX to Markdown
+            inputPath = userRequests[From].filePath;
+            outputPath = userRequests[From].filePath.replace('.docx', '.md')
+            await docxToMarkdown(inputPath, outputPath);
+            try {
+              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Word document converted to Markdown successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Word document converted to MARKDOWN successfully.");
             break;
-            
+
           default:
             await sendMessage(From, "Something went wrong. Please choose a valid option.");
             break;
@@ -312,28 +365,56 @@ app.post('/webhook', async (req, res) => {
             // Convert to JPG
             const jpgPath = path.join(outputDir, `converted-${Date.now()}.jpg`);
             await toJpg(filePath, jpgPath);
-            await sendMessage(From, "Image converted to JPG successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(jpgPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Image converted to JPG successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Image converted to JPG successfully.");
             delete userRequests[From];
             break;
           case 'jpeg':
             // Convert to JPEG
             const jpegPath = path.join(outputDir, `converted-${Date.now()}.jpeg`);
             await toJpeg(filePath, jpegPath);
-            await sendMessage(From, "Image converted to JPEG successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(jpegPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Image converted to JPEG successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Image converted to JPEG successfully.");
             delete userRequests[From];
             break;
           case 'png':
             // Convert to PNG
             const pngPath = path.join(outputDir, `converted-${Date.now()}.png`);
             await toPng(filePath, pngPath);
-            await sendMessage(From, "Image converted to PNG successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(pngPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Image converted to PNG successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Image converted to PNG successfully.");
             delete userRequests[From];
             break;
           case 'webp':
             // Convert to WebP
             const webpPath = path.join(outputDir, `converted-${Date.now()}.webp`);
             await toWebp(filePath, webpPath);
-            await sendMessage(From, "Image converted to WebP successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(webpPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Image converted to WEBP successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Image converted to WebP successfully.");
             delete userRequests[From];
             break;
 
@@ -342,14 +423,28 @@ app.post('/webhook', async (req, res) => {
             // Compress Image
             const compressedPath = path.join(outputDir, `compressed-${Date.now()}.jpg`);
             await compressImage(filePath, compressedPath);
-            await sendMessage(From, "Image compressed successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(compressedPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Image compressed successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Image compressed successfully.");
             delete userRequests[From];
             break;
           case 'black&white':
             // Convert to Black & White
             const bwPath = path.join(outputDir, `bw-${Date.now()}.jpg`);
             await convertImageToBlackAndWhite(filePath, bwPath);
-            await sendMessage(From, "Image converted to Black & White successfully.");
+            try {
+              const fileUrl = await uploadFileToS3(bwPath); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, "Image converted to Black & White successfully.")
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "Image converted to Black & White successfully.");
             delete userRequests[From];
             break;
 
