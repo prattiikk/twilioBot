@@ -172,32 +172,38 @@ app.post('/webhook', async (req, res) => {
 
             switch (userRequests[From].MediaContentType0) {
               case 'application/pdf':
-                // send pdf menu here
-
-                await pdfToDocx(userRequests[From].MediaUrl0);
-                await pdfToText(userRequests[From].MediaUrl0);
-                await sendMessage(From, "PDF conversion completed.");
+                userRequests[From].status = 'pdfConversionMenu';
+                await sendMessage(From, "PDF Conversion Options:\n" +
+                  "1. Convert to DOCX\n" +
+                  "2. Convert to Text\n" +
+                  "3. Extract Images\n" +
+                  "Reply with the number of your desired conversion.");
                 break;
 
               case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                // send docx menu here
-                
-                await docxToPdf(userRequests[From].MediaUrl0);
-                await docxToText(userRequests[From].MediaUrl0);
-                await sendMessage(From, "Word document conversion completed.");
+                userRequests[From].status = 'docxConversionMenu';
+                await sendMessage(From, "DOCX Conversion Options:\n" +
+                  "1. Convert to PDF\n" +
+                  "2. Convert to Text\n" +
+                  "3. Convert to HTML\n" +
+                  "Reply with the number of your desired conversion.");
                 break;
 
               case 'image/png':
               case 'image/jpeg':
               case 'image/jpg':
-                // send img menu here
-                await imageToText(userRequests[From].MediaUrl0);
-                await sendMessage(From, "Image to Text conversion completed.");
+                userRequests[From].status = 'imageConversionMenu';
+                await sendMessage(From, "Image Conversion Options:\n" +
+                  "1. Convert to Text (OCR)\n" +
+                  "2. Compress Image\n" +
+                  "3. Convert to Black & White\n" +
+                  "Reply with the number of your desired conversion.");
                 break;
 
               default:
                 await sendMessage(From, `Unsupported file type: ${userRequests[From].MediaContentType0}.`);
                 console.log("Unsupported file type:", userRequests[From].MediaContentType0);
+                delete userRequests[From];
                 break;
             }
             break;
@@ -205,6 +211,75 @@ app.post('/webhook', async (req, res) => {
           default:
             await sendMessage(From, "Unexpected state. Please try again.");
             delete userRequests[From];
+            break;
+        }
+        break;
+
+      case 'pdfConversionMenu':
+        switch (Body.trim()) {
+          case '1':
+            await pdfToDocx(userRequests[From].MediaUrl0);
+            await sendMessage(From, "PDF converted to DOCX successfully.");
+            delete userRequests[From];
+            break;
+          case '2':
+            await pdfToText(userRequests[From].MediaUrl0);
+            await sendMessage(From, "PDF converted to Text successfully.");
+            delete userRequests[From];
+            break;
+          case '3':
+            await pdfExtractImages(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Images extracted from PDF successfully.");
+            delete userRequests[From];
+            break;
+          default:
+            await sendMessage(From, "Invalid option. Please reply with 1, 2, or 3.");
+            break;
+        }
+        break;
+
+      case 'docxConversionMenu':
+        switch (Body.trim()) {
+          case '1':
+            await docxToPdf(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Word document converted to PDF successfully.");
+            delete userRequests[From];
+            break;
+          case '2':
+            await docxToText(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Word document converted to Text successfully.");
+            delete userRequests[From];
+            break;
+          case '3':
+            await docxToHtml(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Word document converted to HTML successfully.");
+            delete userRequests[From];
+            break;
+          default:
+            await sendMessage(From, "Invalid option. Please reply with 1, 2, or 3.");
+            break;
+        }
+        break;
+
+      case 'imageConversionMenu':
+        switch (Body.trim()) {
+          case '1':
+            await imageToText(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Image converted to Text (OCR) successfully.");
+            delete userRequests[From];
+            break;
+          case '2':
+            await compressImage(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Image compressed successfully.");
+            delete userRequests[From];
+            break;
+          case '3':
+            await convertImageToBlackAndWhite(userRequests[From].MediaUrl0);
+            await sendMessage(From, "Image converted to Black & White successfully.");
+            delete userRequests[From];
+            break;
+          default:
+            await sendMessage(From, "Invalid option. Please reply with 1, 2, or 3.");
             break;
         }
         break;
