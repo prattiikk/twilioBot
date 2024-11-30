@@ -1,7 +1,6 @@
-node_modules
+node_modules/
 package-lock.json
-downloads/*
+downloads/
 .env
-server2.js
 tasks.txt
 template.js

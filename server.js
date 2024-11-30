@@ -7,6 +7,7 @@ const { HfInference } = require('@huggingface/inference');
 const { downloadFileFromURL, deleteAllFilesInFolder } = require('./utils/downloader');
 const path = require('path');
 const { docxToHtml, docxToTxt, docxToPdf, docxToMarkdown } = require('./conversions/docsConversions');
+const {convertPDFToDOCX,convertTextFromPDF}=require('./conversions/pdf.js')
 const {
   toJpg,
   toJpeg,
@@ -247,21 +248,17 @@ app.post('/webhook', async (req, res) => {
       case 'pdfConversionMenu':
         switch (Body.trim()) {
           case 'word':
-            // await pdfToDocx(userRequests[From].MediaUrl0);
+            await convertPDFToDOCX(userRequests[From].filePath,userRequests[From].filePath.replace('.pdf', '.docx'))
             await sendMessage(From, "PDF converted to DOCX successfully.");
             delete userRequests[From];
             break;
-          case 'text':
-            // await pdfToText(userRequests[From].MediaUrl0);
+
+          case 'text': 
+            await convertTextFromPDF(userRequests[From].filePath,userRequests[From].filePath.replace('.pdf', '.docx'))   
             await sendMessage(From, "PDF converted to Text successfully.");
             delete userRequests[From];
             break;
 
-          // case '3':
-          //   // await pdfExtractImages(userRequests[From].MediaUrl0);
-          //   await sendMessage(From, "Images extracted from PDF successfully.");
-          //   delete userRequests[From];
-          //   break;
           default:
             await sendMessage(From, "Something went wrong.");
             break;
