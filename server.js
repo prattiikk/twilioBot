@@ -87,7 +87,7 @@ Interaction Rules:
 
 Response Strategy:
 - If query is about bot usage: Explain file upload, retrieval, conversion
-- If query is unclear: Guide user to upload a file first
+- If query is unclear: just tell user to upload a file first
 - Focus on making file management simple and intuitive
 - Encourage user to take specific action
 - Everything except the search needs a file to be uploaded first, so upload the file first
@@ -127,7 +127,7 @@ app.post('/webhook', async (req, res) => {
           console.log(`Received file from ${From}: ${MediaUrl0}`);
           await sendMessage(From, "Please provide a name for the uploaded file.");
         } else {
-          // const reply = await replyAsABotToThisUserQuery(Body);
+          const reply = await replyAsABotToThisUserQuery(Body);
           await sendMessage(From, reply);
         }
         break;
@@ -156,7 +156,7 @@ app.post('/webhook', async (req, res) => {
               await axios.post('http://localhost:8080/api/v1/executions/webhook/webhooks/webhook-logger/twilio', payload, {
                 headers: { 'Content-Type': 'application/json' },
               });
-              console.log("requested to the kestra to execute the rest .....!");
+              console.log("Requested Kestra to execute the rest...!");
 
               delete userRequests[From];
               await sendMessage(From, "Your file has been successfully uploaded!");
@@ -168,12 +168,43 @@ app.post('/webhook', async (req, res) => {
             break;
 
           case 'convert':
-            await sendMessage(From, "File conversion is coming soon. Stay tuned!");
+            console.log("File type is:", userRequests[From].MediaContentType0);
+
+            switch (userRequests[From].MediaContentType0) {
+              case 'application/pdf':
+                // send pdf menu here
+
+                await pdfToDocx(userRequests[From].MediaUrl0);
+                await pdfToText(userRequests[From].MediaUrl0);
+                await sendMessage(From, "PDF conversion completed.");
+                break;
+
+              case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+                // send docx menu here
+                
+                await docxToPdf(userRequests[From].MediaUrl0);
+                await docxToText(userRequests[From].MediaUrl0);
+                await sendMessage(From, "Word document conversion completed.");
+                break;
+
+              case 'image/png':
+              case 'image/jpeg':
+              case 'image/jpg':
+                // send img menu here
+                await imageToText(userRequests[From].MediaUrl0);
+                await sendMessage(From, "Image to Text conversion completed.");
+                break;
+
+              default:
+                await sendMessage(From, `Unsupported file type: ${userRequests[From].MediaContentType0}.`);
+                console.log("Unsupported file type:", userRequests[From].MediaContentType0);
+                break;
+            }
             break;
 
           default:
-            const reply = await replyAsABotToThisUserQuery(Body);
-            await sendMessage(From, reply);
+            await sendMessage(From, "Unexpected state. Please try again.");
+            delete userRequests[From];
             break;
         }
         break;
@@ -190,6 +221,8 @@ app.post('/webhook', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+
 // Health check route
 app.get('/', (req, res) => {
   res.send('Server is running!');
