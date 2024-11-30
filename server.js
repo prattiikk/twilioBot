@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const axios = require('axios');
 const twilio = require('twilio');
 const { HfInference } = require('@huggingface/inference');
+const { downloadFileFromURL } = require('./utils/downloader');
 
 // Load environment variables
 dotenv.config();
@@ -192,6 +193,13 @@ app.post('/webhook', async (req, res) => {
 
           case 'convert':
             console.log("File type is:", userRequests[From].MediaContentType0);
+            // downloads the file for conversion
+            console.log("before conversion")
+            const url = userRequests[From].MediaUrl0;
+            const name = userRequests[From].fileName
+            downloadFileFromURL(url, name)
+            console.log("after conversion")
+
 
             switch (userRequests[From].MediaContentType0) {
               case 'application/pdf':
