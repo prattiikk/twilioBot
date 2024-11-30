@@ -33,14 +33,14 @@ const uploadFileToS3 = (filePath) => {
                 console.log('File URL:', data.Location); // The public URL of the uploaded file
                 resolve(data.Location); // Resolve the promise with the file URL
 
-                // Optionally, delete the local temporary file after upload
-                fs.unlink(filePath, (unlinkErr) => {
-                    if (unlinkErr) {
-                        console.error('Error deleting temp file:', unlinkErr);
-                    } else {
-                        console.log('Temporary file deleted successfully');
-                    }
-                });
+                // // Optionally, delete the local temporary file after upload
+                // fs.unlink(filePath, (unlinkErr) => {
+                //     if (unlinkErr) {
+                //         console.error('Error deleting temp file:', unlinkErr);
+                //     } else {
+                //         console.log('Temporary file deleted successfully');
+                //     }
+                // });
             }
         });
     });

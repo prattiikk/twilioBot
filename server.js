@@ -16,6 +16,7 @@ const {
   convertImageToBlackAndWhite
 } = require('./conversions/ImgConversions');
 const { uploadFileToS3 } = require('./utils/s3');
+const { convertPDFToDOCX, convertTextFromPDF } = require('./conversions/pdfConversions');
 // Load environment variables
 dotenv.config();
 
@@ -58,6 +59,7 @@ async function sendMessage(to, message) {
 
 async function sendMedia(to, url, message = "success!") {
   try {
+    console.log("url inside sendmedia : ", url);
     const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
     const msg = await client.messages.create({
       from: 'whatsapp:+14155238886',
@@ -263,21 +265,33 @@ app.post('/webhook', async (req, res) => {
       case 'pdfConversionMenu':
         switch (Body.trim()) {
           case 'word':
+            let wordpath = userRequests[From].filePath.replace('.pdf', '.docx')
             // await pdfToDocx(userRequests[From].MediaUrl0);
-            await sendMessage(From, "PDF converted to DOCX successfully.");
+            await convertPDFToDOCX(userRequests[From].filePath, wordpath)
+            try {
+              const fileUrl = await uploadFileToS3(userRequests[From].filePath.replace('.pdf', '.docx')); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, `file available at : ${fileUrl} `)
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "PDF converted to DOCX successfully.");
             delete userRequests[From];
             break;
           case 'text':
             // await pdfToText(userRequests[From].MediaUrl0);
-            await sendMessage(From, "PDF converted to Text successfully.");
+            const textpath = userRequests[From].filePath.replace('.pdf', '.txt')
+            await convertTextFromPDF(userRequests[From].filePath, textpath)
+            try {
+              const fileUrl = await uploadFileToS3(userRequests[From].filePath.replace('.pdf', '.txt')); // Upload the file and get the URL
+              console.log('File is available at:', fileUrl); // Use the URL
+              sendMedia(From, fileUrl, `file available at : ${fileUrl} `)
+            } catch (error) {
+              console.error('File upload failed:', error);
+            }
+            // await sendMessage(From, "PDF converted to Text successfully.");
             delete userRequests[From];
             break;
-
-          // case '3':
-          //   // await pdfExtractImages(userRequests[From].MediaUrl0);
-          //   await sendMessage(From, "Images extracted from PDF successfully.");
-          //   delete userRequests[From];
-          //   break;
           default:
             await sendMessage(From, "Something went wrong.");
             break;
@@ -491,3 +505,9 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+
+
+
+
+
+
