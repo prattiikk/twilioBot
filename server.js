@@ -62,6 +62,22 @@ function sendFileMenu(to) {
   }
 }
 
+function sendMenu(to, MenuCode) {
+  try {
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+    client.messages
+      .create({
+        from: 'whatsapp:+14155238886',
+        contentSid: MenuCode,
+        to: formattedTo,
+      })
+      .then((message) => console.log(`Menu sent with SID: ${message.sid}`))
+      .catch((err) => console.error(`Error sending menu: ${err}`));
+  } catch (err) {
+    console.error(`Error in sendFileMenu: ${err.message}`);
+  }
+}
+
 // Initialize Hugging Face client
 const llmclient = new HfInference(process.env.HUGGING_FACE_API_KEY);
 
@@ -123,9 +139,16 @@ app.post('/webhook', async (req, res) => {
     switch (userRequests[From].status) {
       case 'idle':
         if (MediaUrl0) {
-          userRequests[From] = { ...req.body, status: 'awaitingFileName' };
-          console.log(`Received file from ${From}: ${MediaUrl0}`);
-          await sendMessage(From, "Please provide a name for the uploaded file.");
+
+          if (req.body.Body) {
+            userRequests[From] = { ...req.body, fileName: req.body.Body, status: 'fileNamed' };
+            console.log(`Received file from ${From}: ${MediaUrl0}`);
+            sendFileMenu(From);
+          } else {
+            userRequests[From] = { ...req.body, status: 'awaitingFileName' };
+            console.log(`Received file from ${From}: ${MediaUrl0}`);
+            await sendMessage(From, "Please provide a name for the uploaded file.");
+          }
         } else {
           const reply = await replyAsABotToThisUserQuery(Body);
           await sendMessage(From, reply);
@@ -173,20 +196,12 @@ app.post('/webhook', async (req, res) => {
             switch (userRequests[From].MediaContentType0) {
               case 'application/pdf':
                 userRequests[From].status = 'pdfConversionMenu';
-                await sendMessage(From, "PDF Conversion Options:\n" +
-                  "1. Convert to DOCX\n" +
-                  "2. Convert to Text\n" +
-                  "3. Extract Images\n" +
-                  "Reply with the number of your desired conversion.");
+                sendMenu(From, "HX3c25ca869b4201f37358c56a3be91975");
                 break;
 
               case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
                 userRequests[From].status = 'docxConversionMenu';
-                await sendMessage(From, "DOCX Conversion Options:\n" +
-                  "1. Convert to PDF\n" +
-                  "2. Convert to Text\n" +
-                  "3. Convert to HTML\n" +
-                  "Reply with the number of your desired conversion.");
+                sendMenu(From, 'HX2de94539edd44f427fa8f262f73f6caf');
                 break;
 
               case 'image/png':
@@ -217,46 +232,46 @@ app.post('/webhook', async (req, res) => {
 
       case 'pdfConversionMenu':
         switch (Body.trim()) {
-          case '1':
-            await pdfToDocx(userRequests[From].MediaUrl0);
+          case 'word':
+            // await pdfToDocx(userRequests[From].MediaUrl0);
             await sendMessage(From, "PDF converted to DOCX successfully.");
             delete userRequests[From];
             break;
-          case '2':
-            await pdfToText(userRequests[From].MediaUrl0);
+          case 'text':
+            // await pdfToText(userRequests[From].MediaUrl0);
             await sendMessage(From, "PDF converted to Text successfully.");
             delete userRequests[From];
             break;
-          case '3':
-            await pdfExtractImages(userRequests[From].MediaUrl0);
-            await sendMessage(From, "Images extracted from PDF successfully.");
-            delete userRequests[From];
-            break;
+          // case '3':
+          //   // await pdfExtractImages(userRequests[From].MediaUrl0);
+          //   await sendMessage(From, "Images extracted from PDF successfully.");
+          //   delete userRequests[From];
+          //   break;
           default:
-            await sendMessage(From, "Invalid option. Please reply with 1, 2, or 3.");
+            await sendMessage(From, "Something went wrong.");
             break;
         }
         break;
 
       case 'docxConversionMenu':
         switch (Body.trim()) {
-          case '1':
-            await docxToPdf(userRequests[From].MediaUrl0);
+          case 'pdf':
+            // await docxToPdf(userRequests[From].MediaUrl0);
             await sendMessage(From, "Word document converted to PDF successfully.");
             delete userRequests[From];
             break;
-          case '2':
-            await docxToText(userRequests[From].MediaUrl0);
+          case 'text':
+            // await docxToText(userRequests[From].MediaUrl0);
             await sendMessage(From, "Word document converted to Text successfully.");
             delete userRequests[From];
             break;
-          case '3':
-            await docxToHtml(userRequests[From].MediaUrl0);
-            await sendMessage(From, "Word document converted to HTML successfully.");
-            delete userRequests[From];
-            break;
+          // case '3':
+          //   await docxToHtml(userRequests[From].MediaUrl0);
+          //   await sendMessage(From, "Word document converted to HTML successfully.");
+          //   delete userRequests[From];
+          //   break;
           default:
-            await sendMessage(From, "Invalid option. Please reply with 1, 2, or 3.");
+            await sendMessage(From, "Something went wrong.");
             break;
         }
         break;
