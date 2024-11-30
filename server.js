@@ -123,9 +123,17 @@ app.post('/webhook', async (req, res) => {
     switch (userRequests[From].status) {
       case 'idle':
         if (MediaUrl0) {
+
+          if(req.body.Body){
+          userRequests[From] = { ...req.body,fileName:req.body.Body, status: 'fileNamed' };
+          console.log(`Received file from ${From}: ${MediaUrl0}`);      
+          sendFileMenu(From);
+          }else{
           userRequests[From] = { ...req.body, status: 'awaitingFileName' };
           console.log(`Received file from ${From}: ${MediaUrl0}`);
           await sendMessage(From, "Please provide a name for the uploaded file.");
+          }
+          
         } else {
           const reply = await replyAsABotToThisUserQuery(Body);
           await sendMessage(From, reply);
