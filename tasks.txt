@@ -48,3 +48,106 @@ Here’s a **list of features** to work on for your project:
 ---
 
 Let me know if you'd like me to prioritize or refine these further! 
+
+
+
+
+
+
+
+
+id: webhook-logger
+namespace: webhooks
+
+# Define the tasks to be executed when the webhook is triggered
+tasks:
+  # Log request details
+  - id: log-request-details
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      Webhook Received! 
+      Headers: {{ trigger.headers | toJson }}
+      Query Params: {{ trigger.parameters | toJson }}
+      Body: {{ trigger.body | toJson }}
+
+  # Define default variables
+  - id: set-default-variables
+    type: io.kestra.plugin.core.log.Log
+    variables:
+      TWILIO_ACCOUNT_SID: "ACc73d302f961b71e3dbdd0175607db059"
+      TWILIO_AUTH_TOKEN: "9d9f15f67b0d43e9b6a2bc6bb8ae6473"
+    message: |
+      Default variables set:
+      - defaultVar1: {{ vars.TWILIO_ACCOUNT_SID }}
+      - defaultVar2: {{ vars.TWILIO_AUTH_TOKEN }}
+
+  # Execute a Node.js script using the default variables
+  - id: execute-node-script
+    type: io.kestra.core.tasks.scripts.Node
+    description: Run a Node.js script with default variables passed as arguments
+    files:
+      - script.js   # Here, specify the file name as a string
+    args:
+      - "{{ vars.TWILIO_ACCOUNT_SID }}"
+      - "{{ vars.TWILIO_AUTH_TOKEN }}"
+
+  # Log the script completion
+  - id: log-script-completion
+    type: io.kestra.plugin.core.log.Log
+    message: "Node.js script executed and processed successfully!"
+
+# Explicitly define the HTTP trigger
+triggers:
+  - id: example-trigger
+    type: io.kestra.plugin.core.trigger.Webhook
+    description: A basic trigger example
+    key: twilio
+    logToFile: false
+
+
+
+
+// Importing the Twilio library
+const twilio = require('twilio');
+
+// Hardcoded environment variables
+const ACCOUNT_SID = 'ACc73d302f961b71e3dbdd0175607db059';  // Replace with your Twilio Account SID
+const AUTH_TOKEN = '9d9f15f67b0d43e9b6a2bc6bb8ae6473';    // Replace with your Twilio Auth Token
+const FROM_NUMBER = 'whatsapp:+14155238886';    // Replace with your Twilio WhatsApp sandbox number
+
+// Initialize the Twilio client with the hardcoded credentials
+const client = twilio(ACCOUNT_SID, AUTH_TOKEN);
+
+// Function to send a message via WhatsApp
+async function sendMessage(to, message) {
+  try {
+    // Ensure 'whatsapp:' prefix is added if not already present
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+
+    const msg = await client.messages.create({
+      from: FROM_NUMBER,  // Twilio's WhatsApp sandbox number
+      to: formattedTo,    // Recipient's phone number with whatsapp: prefix
+      body: message,      // Message content
+    });
+
+    console.log(`Message sent successfully! SID: ${msg.sid}`);
+  } catch (err) {
+    console.error(`Failed to send message: ${err.message}`);
+  }
+}
+
+// Example usage of the sendMessage function
+sendMessage('7058385245', 'Hello from Twilio WhatsApp!');
+
+
+
+
+
+
+
+accessKey=AKIAZQ3DTUI4O6PQFKGH
+secretKey=7jfcYXvhopPvUyykqJIbqXaBf3O+azyJwhLQ8SCP
+
+
+
+ const s3Url = '{{ taskOutputs["s3-upload"].s3Url }}';
