@@ -4,8 +4,17 @@ const dotenv = require('dotenv');
 const axios = require('axios');
 const twilio = require('twilio');
 const { HfInference } = require('@huggingface/inference');
-const { downloadFileFromURL } = require('./utils/downloader');
-
+const { downloadFileFromURL, deleteAllFilesInFolder } = require('./utils/downloader');
+const path = require('path');
+const { docxToHtml, docxToTxt, docxToPdf, docxToMarkdown } = require('./conversions/docsConversions');
+const {
+  toJpg,
+  toJpeg,
+  toPng,
+  toWebp,
+  compressImage,
+  convertImageToBlackAndWhite
+} = require('./conversions/ImgConversions');
 // Load environment variables
 dotenv.config();
 
@@ -197,9 +206,10 @@ app.post('/webhook', async (req, res) => {
             console.log("before conversion")
             const url = userRequests[From].MediaUrl0;
             const name = userRequests[From].fileName
-            downloadFileFromURL(url, name)
-            console.log("after conversion")
-
+            deleteAllFilesInFolder(path.join(__dirname, "downloads"));
+            const filePath = await downloadFileFromURL(url, name)
+            userRequests[From].filePath = filePath;
+            console.log("after conversion path : ", filePath)
 
             switch (userRequests[From].MediaContentType0) {
               case 'application/pdf':
@@ -209,18 +219,14 @@ app.post('/webhook', async (req, res) => {
 
               case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
                 userRequests[From].status = 'docxConversionMenu';
-                sendMenu(From, 'HX2de94539edd44f427fa8f262f73f6caf');
+                sendMenu(From, 'HX3f0f117bd02ed857fc4a0279ec779e30');
                 break;
 
               case 'image/png':
               case 'image/jpeg':
               case 'image/jpg':
                 userRequests[From].status = 'imageConversionMenu';
-                await sendMessage(From, "Image Conversion Options:\n" +
-                  "1. Convert to Text (OCR)\n" +
-                  "2. Compress Image\n" +
-                  "3. Convert to Black & White\n" +
-                  "Reply with the number of your desired conversion.");
+                sendMenu(From, 'HX43981a6698e5b23091b5cad8ee768b67');
                 break;
 
               default:
@@ -250,6 +256,7 @@ app.post('/webhook', async (req, res) => {
             await sendMessage(From, "PDF converted to Text successfully.");
             delete userRequests[From];
             break;
+
           // case '3':
           //   // await pdfExtractImages(userRequests[From].MediaUrl0);
           //   await sendMessage(From, "Images extracted from PDF successfully.");
@@ -263,46 +270,91 @@ app.post('/webhook', async (req, res) => {
 
       case 'docxConversionMenu':
         switch (Body.trim()) {
+
           case 'pdf':
-            // await docxToPdf(userRequests[From].MediaUrl0);
+            await docxToPdf(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.pdf'));
             await sendMessage(From, "Word document converted to PDF successfully.");
             delete userRequests[From];
             break;
+
           case 'text':
-            // await docxToText(userRequests[From].MediaUrl0);
+            // Convert the DOCX to Text
+            await docxToTxt(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.txt'));
             await sendMessage(From, "Word document converted to Text successfully.");
             delete userRequests[From];
             break;
-          // case '3':
-          //   await docxToHtml(userRequests[From].MediaUrl0);
-          //   await sendMessage(From, "Word document converted to HTML successfully.");
-          //   delete userRequests[From];
-          //   break;
+
+          case 'html':
+            // Convert the DOCX to HTML
+            await docxToHtml(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.html'));
+            await sendMessage(From, "Word document converted to HTML successfully.");
+            delete userRequests[From];
+            break;
+
+          case 'markdown':
+            await docxToMarkdown(userRequests[From].filePath, userRequests[From].filePath.replace('.docx', '.html'));
+            await sendMessage(From, "Word document converted to MARKDOWN successfully.");
+            break;
+            
           default:
-            await sendMessage(From, "Something went wrong.");
+            await sendMessage(From, "Something went wrong. Please choose a valid option.");
             break;
         }
         break;
 
       case 'imageConversionMenu':
+        const filePath = userRequests[From].filePath;
+        const outputDir = path.dirname(filePath);
+
         switch (Body.trim()) {
-          case '1':
-            await imageToText(userRequests[From].MediaUrl0);
-            await sendMessage(From, "Image converted to Text (OCR) successfully.");
+          // Format Conversions
+          case 'jpg':
+            // Convert to JPG
+            const jpgPath = path.join(outputDir, `converted-${Date.now()}.jpg`);
+            await toJpg(filePath, jpgPath);
+            await sendMessage(From, "Image converted to JPG successfully.");
             delete userRequests[From];
             break;
-          case '2':
-            await compressImage(userRequests[From].MediaUrl0);
+          case 'jpeg':
+            // Convert to JPEG
+            const jpegPath = path.join(outputDir, `converted-${Date.now()}.jpeg`);
+            await toJpeg(filePath, jpegPath);
+            await sendMessage(From, "Image converted to JPEG successfully.");
+            delete userRequests[From];
+            break;
+          case 'png':
+            // Convert to PNG
+            const pngPath = path.join(outputDir, `converted-${Date.now()}.png`);
+            await toPng(filePath, pngPath);
+            await sendMessage(From, "Image converted to PNG successfully.");
+            delete userRequests[From];
+            break;
+          case 'webp':
+            // Convert to WebP
+            const webpPath = path.join(outputDir, `converted-${Date.now()}.webp`);
+            await toWebp(filePath, webpPath);
+            await sendMessage(From, "Image converted to WebP successfully.");
+            delete userRequests[From];
+            break;
+
+          // Image Processing
+          case 'compress':
+            // Compress Image
+            const compressedPath = path.join(outputDir, `compressed-${Date.now()}.jpg`);
+            await compressImage(filePath, compressedPath);
             await sendMessage(From, "Image compressed successfully.");
             delete userRequests[From];
             break;
-          case '3':
-            await convertImageToBlackAndWhite(userRequests[From].MediaUrl0);
+          case 'black&white':
+            // Convert to Black & White
+            const bwPath = path.join(outputDir, `bw-${Date.now()}.jpg`);
+            await convertImageToBlackAndWhite(filePath, bwPath);
             await sendMessage(From, "Image converted to Black & White successfully.");
             delete userRequests[From];
             break;
+
           default:
-            await sendMessage(From, "Invalid option. Please reply with 1, 2, or 3.");
+            await sendMessage(From, "something went wrong...!");
             break;
         }
         break;

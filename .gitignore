@@ -1,0 +1,7 @@
+node_modules
+package-lock.json
+downloads/*
+.env
+server2.js
+tasks.txt
+template.js
