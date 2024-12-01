@@ -113,36 +113,9 @@ app.post('/webhook', async (req, res) => {
       return res.status(200).send("OK");
     }
 
-
-
-    // if (Body) {
-    //   if (!userRequests[From]) {
-    //     // No existing user request
-    //     if (!MediaUrl0) {
-    //       // Text-only interaction
-    //       if (Body.toLowerCase() === "retrieve") {
-    //         userRequests[From] = { status: "retrieve" };
-    //       } else if (Body.toLowerCase() === "manage") {
-    //         userRequests[From] = { status: "manage" };
-    //       } else {
-    //         // Default case: send retrieve menu for any other text
-    //         await sendMenu(From, process.env.RETRIEVE_MENU);
-    //       }
-    //     } else {
-    //       // File upload without previous context
-    //       userRequests[From] = { status: "idle" };
-    //     }
-    //   }
-    // }
-
-    // if (userRequests[From]?.status === 'aiMode') {
-    //   await handleAiMode({ From, Body });
-    //   return res.status(200).send("OK");
-    // }
-
-
-
     switch (userRequests[From].status) {
+      case "initial":
+        break;
       case 'retrieve':
         console.log("retrieve called ", From)
         try {
@@ -256,7 +229,7 @@ app.post('/webhook', async (req, res) => {
               if (Body.toLowerCase() === 'exit') {
                 await sendMessage(From, "AI mode deactivated. Returning to main menu.");
                 userRequests[From].status = 'fileNamed';
-                sendMenu(From, process.env.FILE_MENU);
+                delete userRequests[From];
                 break;
               }
 
@@ -270,6 +243,7 @@ app.post('/webhook', async (req, res) => {
               await sendMessage(From, ragResponse);
             } catch (error) {
               console.error('RAG Query Error:', error);
+              delete userRequests[From];
               await sendMessage(From, "Sorry, there was an error processing your query. Please try again or type 'exit' to return to the main menu.");
             }
             break;
@@ -523,7 +497,8 @@ app.post('/webhook', async (req, res) => {
         }
         break;
       default:
-        await sendMessage(From, "Unexpected state. Please try again.");
+        console.log("status : ", userRequests[From].status)
+        await sendMessage(From, `Unexpected state. Please try again. ${userRequests[From].status}`);
         delete userRequests[From];
         break;
     }

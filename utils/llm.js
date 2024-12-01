@@ -4,33 +4,25 @@ const { HfInference } = require('@huggingface/inference');
 const dotenv = require("dotenv")
 dotenv.config()
 
-
 async function performRAGQuery(filePath, query) {
     const huggingfaceToken = process.env.HUGGING_FACE_API_KEY
-    // Dynamically import transformers
     const { pipeline } = await import('@xenova/transformers');
-
 
     const hf = new HfInference(huggingfaceToken);
 
-    // Initialize embedding model
     const embeddingPipeline = await pipeline(
         'feature-extraction',
         'Xenova/all-MiniLM-L6-v2'
     );
 
-    // Define QA model
-    // const qaModel = 'deepset/roberta-base-squad2';
-    const qaModel = 'google-bert/bert-large-uncased-whole-word-masking-finetuned-squad'
+    const textGenerationModel = process.env.MODEL_NAME || 'facebook/opt-350m';
 
-    // Extract text from PDF file
     const extractTextFromPdf = async (filePath) => {
         const fileBuffer = fs.readFileSync(filePath);
         const data = await pdfParse(fileBuffer);
         return data.text;
     };
 
-    // Split text into smaller chunks
     const splitIntoChunks = (content, maxChunkSize = 800) => {
         const sentences = content.split('. ');
         const chunks = [];
@@ -51,7 +43,6 @@ async function performRAGQuery(filePath, query) {
         return chunks;
     };
 
-    // Generate embeddings for text chunks
     const generateEmbeddings = async (textChunks) => {
         const embeddings = [];
         for (const chunk of textChunks) {
@@ -61,13 +52,12 @@ async function performRAGQuery(filePath, query) {
             });
             embeddings.push({
                 chunk,
-                embedding: Array.from(embedding)  // Convert to standard array
+                embedding: Array.from(embedding)
             });
         }
         return embeddings;
     };
 
-    // Calculate cosine similarity between two vectors
     const cosineSimilarity = (vec1, vec2) => {
         const dotProduct = vec1.reduce((sum, val, i) => sum + val * vec2[i], 0);
         const normA = Math.sqrt(vec1.reduce((sum, val) => sum + val * val, 0));
@@ -75,16 +65,13 @@ async function performRAGQuery(filePath, query) {
         return dotProduct / (normA * normB);
     };
 
-    // Retrieve relevant chunks based on the query
     const retrieveRelevantChunks = async (query, embeddings) => {
-        // Generate embedding for the query
         const queryEmbedding = await embeddingPipeline(query, {
             pooling: 'mean',
             normalize: true
         });
         const queryEmbeddingArray = Array.from(queryEmbedding);
 
-        // Score and sort chunks
         const scoredChunks = embeddings.map((e) => ({
             chunk: e.chunk,
             score: cosineSimilarity(queryEmbeddingArray, e.embedding),
@@ -94,32 +81,51 @@ async function performRAGQuery(filePath, query) {
         return scoredChunks.slice(0, 3).map((chunk) => chunk.chunk);
     };
 
+    // Extract only the final concise answer
+    const processResponse = (response) => {
+        // Extract the last sentence, which should be the concise answer
+        const match = response.match(/"([^"]+)"$/);
+
+        if (match && match[1]) {
+            // Truncate to 1600 characters if needed
+            const truncatedResponse = match[1].length > 1600
+                ? match[1].substring(0, 1597) + '...'
+                : match[1];
+
+            return truncatedResponse;
+        }
+
+        // Fallback if no quote is found
+        return response.trim().split('.').pop().trim();
+    };
+
     try {
-        // Extract and process PDF
         const text = await extractTextFromPdf(filePath);
         const textChunks = splitIntoChunks(text);
         const embeddings = await generateEmbeddings(textChunks);
 
-        // Retrieve relevant chunks
         const relevantChunks = await retrieveRelevantChunks(query, embeddings);
         const context = relevantChunks.join("\n\n");
 
-        // Use Hugging Face inference for question answering
-        const response = await hf.questionAnswering({
-            model: qaModel,
-            inputs: {
-                question: query,
-                context: context
+        const response = await hf.textGeneration({
+            model: textGenerationModel,
+            inputs: `Context: ${context}\n\nQuery: ${query}\n\nGive a direct, concise answer in one sentence:`,
+            parameters: {
+                max_new_tokens: 50,
+                temperature: 0.3,
+                top_p: 0.7
             }
         });
 
-        console.log(response.answer)
-        return response.answer;
+
+
+        const finalResponse = processResponse(response.generated_text);
+        console.log("response ------------------> ", finalResponse)
+        return finalResponse;
     } catch (error) {
         console.error("Error during RAG query:", error);
         throw error;
     }
 }
-
 
 module.exports = { performRAGQuery };
