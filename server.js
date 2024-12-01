@@ -1,14 +1,13 @@
 const express = require('express');
+const path = require('path');
 const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
 const axios = require('axios');
-const twilio = require('twilio');
-const { HfInference } = require('@huggingface/inference');
+const twilio = require("twilio")
 const { downloadFileFromURL, deleteAllFilesInFolder } = require('./utils/downloader');
-const path = require('path');
 const { docxToHtml, docxToTxt, docxToPdf, docxToMarkdown } = require('./conversions/docsConversions');
-const {convertPDFToDOCX,convertTextFromPDF}=require('./conversions/pdf.js')
-const {getList,getUrl}=require('./utils/list.js')
+const { convertPDFToDOCX, convertTextFromPDF } = require('./conversions/pdf.js')
+const { getList, getUrl } = require('./utils/list.js')
 const {
   toJpg,
   toJpeg,
@@ -18,8 +17,11 @@ const {
   convertImageToBlackAndWhite
 } = require('./conversions/ImgConversions');
 const { uploadFileToS3 } = require('./utils/s3');
-const { convertPDFToDOCX, convertTextFromPDF } = require('./conversions/pdfConversions');
-const { performRAGQuery } = require('./utils/openai');
+const { performRAGQuery } = require('./utils/llm.js');
+const { sendMedia, sendMenu, sendMessage } = require('./utils/twilioMsg.js');
+const { replyAsABotToThisUserQuery } = require('./utils/reply.js');
+const status = require('statuses');
+
 // Load environment variables
 dotenv.config();
 
@@ -30,157 +32,9 @@ const PORT = process.env.PORT || 3000;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Load Twilio credentials
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-
-if (!accountSid || !authToken) {
-  console.error('Missing Twilio credentials. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in .env');
-  process.exit(1);
-}
-
-// Initialize Twilio client
-const client = twilio(accountSid, authToken);
 
 // In-memory store to track file uploads by sender
 const userRequests = {};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Function to send a message
-async function sendMessage(to, message) {
-  try {
-    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
-    const msg = await client.messages.create({
-      from: 'whatsapp:+14155238886',
-      body: message,
-      to: formattedTo,
-    });
-    console.log(`Message sent successfully! SID: ${msg.sid}`);
-  } catch (err) {
-    console.error(`Failed to send message: ${err.message}`);
-  }
-}
-
-async function sendMedia(to, url, message = "success!") {
-  try {
-    console.log("url inside sendmedia : ", url);
-    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
-    const msg = await client.messages.create({
-      from: 'whatsapp:+14155238886',
-      body: message,
-      mediaUrl: url,
-      to: formattedTo,
-    });
-    console.log(`Message sent successfully! SID: ${msg.sid}`);
-  } catch (err) {
-    console.error(`Failed to send message: ${err.message}`);
-  }
-}
-
-// Function to send the file menu
-function sendFileMenu(to) {
-  try {
-    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
-    client.messages
-      .create({
-        from: 'whatsapp:+14155238886',
-        // contentSid: 'HX48616562cd2739a84633025b1bc23d86',
-        contentSid: "HXd2167e5e74529ff720476c54b7423e22",
-        to: formattedTo,
-      })
-      .then((message) => console.log(`Menu sent with SID: ${message.sid}`))
-      .catch((err) => console.error(`Error sending menu: ${err}`));
-  } catch (err) {
-    console.error(`Error in sendFileMenu: ${err.message}`);
-  }
-}
-
-function sendMenu(to, MenuCode) {
-  try {
-    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
-    client.messages
-      .create({
-        from: 'whatsapp:+14155238886',
-        contentSid: MenuCode,
-        to: formattedTo,
-      })
-      .then((message) => console.log(`Menu sent with SID: ${message.sid}`))
-      .catch((err) => console.error(`Error sending menu: ${err}`));
-  } catch (err) {
-    console.error(`Error in sendFileMenu: ${err.message}`);
-  }
-}
-
-// Initialize Hugging Face client
-const llmclient = new HfInference(process.env.HUGGING_FACE_API_KEY);
-
-// Function to generate bot responses
-async function replyAsABotToThisUserQuery(query) {
-  try {
-    const promptTemplate = `
-You are an AI WhatsApp file management bot with three core functionalities:
-1. Upload files to S3 cloud storage
-2. Retrieve files from S3
-3. Convert files between formats
-
-create a simple and short reply to the query from the user based on the rules listed below
-users query: ${query}
-
-Interaction Rules:
-- Always provide a direct, concise response
-- Explain bot capabilities relevant to the query
-- Use a friendly, natural WhatsApp conversation style
-- Keep responses between 20-40 words
-- Avoid technical jargon
-- Do not use "Bot Response:" or similar prefixes
-
-Response Strategy:
-- If query is about bot usage: Explain file upload, retrieval, conversion
-- If query is unclear: just tell user to upload a file first
-- Focus on making file management simple and intuitive
-- Encourage user to take specific action
-- Everything except the search needs a file to be uploaded first, so upload the file first
-
-Tone: Helpful, conversational, straightforward, professional
-Goal: Make file management easy and quick
-`;
-    const response = await llmclient.textGeneration({
-      model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
-      inputs: promptTemplate,
-      max_new_tokens: 150,
-    });
-    return response.generated_text.trim() || "Hi there! I'm your file management assistant. How can I help you today?";
-  } catch (error) {
-    console.error('Error generating bot response:', error);
-    return "Sorry, I'm having trouble processing your request right now. Please try again or send your file.";
-  }
-}
-
-
-
 
 
 async function handleAiMode({ From, Body }) {
@@ -188,13 +42,14 @@ async function handleAiMode({ From, Body }) {
     if (Body.toLowerCase() === 'exit') {
       userRequests[From].status = 'fileNamed';
       await sendMessage(From, "AI mode deactivated. Returning to main menu.");
-      sendFileMenu(From);
+      // sendFileMenu(From);
+      sendMenu(From, process.env.RETRIEVE_MENU);
       return;
     }
 
     const response = await performRAGQuery(
-       userRequests[From].filePath,
-       Body,
+      userRequests[From].filePath,
+      Body,
     );
     await sendMessage(From, response);
   } catch (error) {
@@ -207,69 +62,151 @@ async function handleAiMode({ From, Body }) {
 
 
 
+
+
+
+
+
+
 // Webhook route to handle incoming WhatsApp messages
 app.post('/webhook', async (req, res) => {
   try {
 
     const { From, Body, MediaUrl0 } = req.body;
-    // console.log(await getList('whatsapp:+917058385245')) 
-    // console.log(await getUrl('whatsapp:+917058385245','tbgranny'));
+
     if (!Body && !MediaUrl0) {
       return res.status(400).send('Bad Request: Missing message or media URL');
     }
 
+
+    // Ensure user request exists before any operations
     if (!userRequests[From]) {
-      userRequests[From] = { status: 'idle' };
+      userRequests[From] = { status: 'initial' };
     }
 
-    if (userRequests[From]?.status === 'aiMode') {
+    if (Body) {
+      if (userRequests[From].status === 'initial') {
+        // Text-only interaction
+        if (!MediaUrl0) {
+          if (Body.toLowerCase() === "retrieve") {
+            userRequests[From].status = "retrieve";
+          } else if (Body.toLowerCase() === "manage") {
+            userRequests[From].status = "manage";
+          } else {
+            // Default case: send retrieve menu for any other text
+            await sendMenu(From, process.env.RETRIEVE_MENU);
+          }
+        } else {
+          // File upload without previous context
+          userRequests[From].status = "idle";
+        }
+      }
+    }
+
+    // Ensure user request still exists and has a status
+    if (!userRequests[From] || !userRequests[From].status) {
+      userRequests[From] = { status: 'initial' };
+    }
+
+    if (userRequests[From].status === 'aiMode') {
       await handleAiMode({ From, Body });
       return res.status(200).send("OK");
     }
 
 
+
+    // if (Body) {
+    //   if (!userRequests[From]) {
+    //     // No existing user request
+    //     if (!MediaUrl0) {
+    //       // Text-only interaction
+    //       if (Body.toLowerCase() === "retrieve") {
+    //         userRequests[From] = { status: "retrieve" };
+    //       } else if (Body.toLowerCase() === "manage") {
+    //         userRequests[From] = { status: "manage" };
+    //       } else {
+    //         // Default case: send retrieve menu for any other text
+    //         await sendMenu(From, process.env.RETRIEVE_MENU);
+    //       }
+    //     } else {
+    //       // File upload without previous context
+    //       userRequests[From] = { status: "idle" };
+    //     }
+    //   }
+    // }
+
+    // if (userRequests[From]?.status === 'aiMode') {
+    //   await handleAiMode({ From, Body });
+    //   return res.status(200).send("OK");
+    // }
+
+
+
     switch (userRequests[From].status) {
+      case 'retrieve':
+        console.log("retrieve called ", From)
+        try {
+          const data = await getList(From);
+          // const data = "list 1\nlist 2"
+          await sendMessage(From, data);
+          userRequests[From].status = 'awaitingFileName';
+          userRequests[From].retrieve = true;
+        } catch (error) {
+          console.error('Retrieve error:', error);
+          await sendMessage(From, "Failed to retrieve list. Please try again.");
+          delete userRequests[From];
+        }
+        break;
+      case "manage":
+        await sendMessage(From, "upload or forward the file");
+        console.log("inside manage so asked to upload a file");
+        userRequests[From].status = 'idle';
+        break;
       case 'idle':
         if (MediaUrl0) {
 
           if (req.body.Body) {
             userRequests[From] = { ...req.body, fileName: req.body.Body, status: 'fileNamed' };
             console.log(`Received file from ${From}: ${MediaUrl0}`);
-            sendFileMenu(From);
+            // sendFileMenu(From);
+            sendMenu(From, process.env.FILE_MENU)
           } else {
             userRequests[From] = { ...req.body, status: 'awaitingFileName' };
             console.log(`Received file from ${From}: ${MediaUrl0}`);
             await sendMessage(From, "Please provide a name for the uploaded file.");
           }
         } else {
-          const reply = await replyAsABotToThisUserQuery(Body);
-          await sendMessage(From, reply);
+          // const reply = await replyAsABotToThisUserQuery(Body);
+          // await sendMessage(From, reply);
+          await sendMessage(From, "Please send a file and then choose an option from the menu.");
+
         }
         break;
-
       case 'awaitingFileName':
         if (Body) {
           userRequests[From].fileName = Body;
           userRequests[From].status = 'fileNamed';
           console.log(`File named by ${From}: ${Body}`);
-          if(userRequests[From].retrieve){
-                   const s3_url=await getUrl(From,userRequests[From].fileName);
-                   sendMedia(From,s3_url,userRequests[From].fileName);
-                   delete userRequests[From];
-          }else{
-                   sendFileMenu(From);
+          if (userRequests[From].retrieve) {
+            const s3_url = await getUrl(From, userRequests[From].fileName);
+            if (s3_url) {
+              sendMedia(From, s3_url, userRequests[From].fileName);
+            }
+            else {
+              await sendMessage(From, "cant find the file you are looking for!");
+              await sendMenu(From, process.env.RETRIEVE_MENU);
+            }
+            delete userRequests[From];
+
+          } else {
+            delete userRequests[From];
+            sendMenu(From, process.env.FILE_MENU);
           }
         } else {
           await sendMessage(From, "Please provide a name for your file.");
         }
 
         break;
-
-
-
-
-
-
       case 'fileNamed':
         switch (Body.toLowerCase()) {
           case 'upload':
@@ -293,9 +230,6 @@ app.post('/webhook', async (req, res) => {
               delete userRequests[From];
             }
             break;
-
-
-
 
 
           case "ai":
@@ -322,7 +256,7 @@ app.post('/webhook', async (req, res) => {
               if (Body.toLowerCase() === 'exit') {
                 await sendMessage(From, "AI mode deactivated. Returning to main menu.");
                 userRequests[From].status = 'fileNamed';
-                sendFileMenu(From);
+                sendMenu(From, process.env.FILE_MENU);
                 break;
               }
 
@@ -342,15 +276,6 @@ app.post('/webhook', async (req, res) => {
 
 
 
-
-
-          case 'retrieve':
-            const data=await getList(From);
-            await sendMessage(From,data);
-            await sendMessage(From,'Send the file Name from this list to retrieve');
-            userRequests[From].status='awaitingFileName';
-            userRequests[From].retrieve=true;
-            break;
           case 'convert':
             console.log("File type is:", userRequests[From].MediaContentType0);
             // downloads the file for conversion
@@ -394,11 +319,6 @@ app.post('/webhook', async (req, res) => {
             break;
         }
         break;
-
-
-
-
-
       case 'pdfConversionMenu':
         switch (Body.trim()) {
           case 'word':
@@ -434,7 +354,6 @@ app.post('/webhook', async (req, res) => {
             break;
         }
         break;
-
       case 'docxConversionMenu':
         switch (Body.trim()) {
 
@@ -505,7 +424,6 @@ app.post('/webhook', async (req, res) => {
             break;
         }
         break;
-
       case 'imageConversionMenu':
         const filePath = userRequests[From].filePath;
         const outputDir = path.dirname(filePath);
@@ -604,7 +522,6 @@ app.post('/webhook', async (req, res) => {
             break;
         }
         break;
-
       default:
         await sendMessage(From, "Unexpected state. Please try again.");
         delete userRequests[From];

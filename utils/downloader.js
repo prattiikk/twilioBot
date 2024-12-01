@@ -1,10 +1,10 @@
 const axios = require("axios");
 const path = require('path');
 const fs = require("fs");
-
+const dotenv = require("dotenv").config()
 // Function to download the file from a given URL (e.g., from Twilio)
 const downloadFileFromURL = async (fileUrl, filename) => {
-    const authHeader = 'ACe1b2a9f5178e94e89f11a1ba5f0aedf2:6082592c2ca385580e3e7f88d0a06db7';
+    const authHeader = process.env.TWILIO_HEADER;
 
     return new Promise(async (resolve, reject) => {
         try {

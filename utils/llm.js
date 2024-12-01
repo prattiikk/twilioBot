@@ -10,7 +10,7 @@ async function performRAGQuery(filePath, query) {
     // Dynamically import transformers
     const { pipeline } = await import('@xenova/transformers');
 
-    // Initialize Hugging Face Inference
+
     const hf = new HfInference(huggingfaceToken);
 
     // Initialize embedding model
