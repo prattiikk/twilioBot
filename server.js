@@ -8,6 +8,7 @@ const { downloadFileFromURL, deleteAllFilesInFolder } = require('./utils/downloa
 const path = require('path');
 const { docxToHtml, docxToTxt, docxToPdf, docxToMarkdown } = require('./conversions/docsConversions');
 const {convertPDFToDOCX,convertTextFromPDF}=require('./conversions/pdf.js')
+const {getList,getUrl}=require('./utils/list.js')
 const {
   toJpg,
   toJpeg,
@@ -48,6 +49,21 @@ async function sendMessage(to, message) {
     const msg = await client.messages.create({
       from: 'whatsapp:+14155238886',
       body: message,
+      to: formattedTo,
+    });
+    console.log(`Message sent successfully! SID: ${msg.sid}`);
+  } catch (err) {
+    console.error(`Failed to send message: ${err.message}`);
+  }
+}
+async function sendMedia(to, url, message = "success!") {
+  try {
+    console.log("url inside sendmedia : ", url);
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+    const msg = await client.messages.create({
+      from: 'whatsapp:+14155238886',
+      body: message,
+      mediaUrl: url,
       to: formattedTo,
     });
     console.log(`Message sent successfully! SID: ${msg.sid}`);
@@ -137,8 +153,10 @@ Goal: Make file management easy and quick
 // Webhook route to handle incoming WhatsApp messages
 app.post('/webhook', async (req, res) => {
   try {
-    const { From, Body, MediaUrl0 } = req.body;
 
+    const { From, Body, MediaUrl0 } = req.body;
+    // console.log(await getList('whatsapp:+917058385245')) 
+    // console.log(await getUrl('whatsapp:+917058385245','tbgranny'));
     if (!Body && !MediaUrl0) {
       return res.status(400).send('Bad Request: Missing message or media URL');
     }
@@ -171,7 +189,13 @@ app.post('/webhook', async (req, res) => {
           userRequests[From].fileName = Body;
           userRequests[From].status = 'fileNamed';
           console.log(`File named by ${From}: ${Body}`);
-          sendFileMenu(From);
+          if(userRequests[From].retrieve){
+                   const s3_url=await getUrl(From,userRequests[From].fileName);
+                   sendMedia(From,s3_url,userRequests[From].fileName);
+                   delete userRequests[From];
+          }else{
+                   sendFileMenu(From);
+          }
         } else {
           await sendMessage(From, "Please provide a name for your file.");
         }
@@ -201,6 +225,13 @@ app.post('/webhook', async (req, res) => {
             }
             break;
 
+          case 'retrieve':
+            const data=await getList(From);
+            await sendMessage(From,data);
+            await sendMessage(From,'Send the file Name from this list to retrieve');
+            userRequests[From].status='awaitingFileName';
+            userRequests[From].retrieve=true;
+            break;
           case 'convert':
             console.log("File type is:", userRequests[From].MediaContentType0);
             // downloads the file for conversion
