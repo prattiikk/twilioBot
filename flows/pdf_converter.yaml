@@ -1,0 +1,172 @@
+id: pdf_converter
+namespace: controller
+tasks:
+  - id: pdf_conv
+    type: io.kestra.plugin.scripts.node.Script
+    description: converts the pdfs to different formats.
+    beforeCommands:
+      - npm i axios aws-sdk docx pdf-parse
+    script: |
+      const fs = require('fs');
+      const path = require('path');
+      const axios = require('axios');
+      const AWS = require("aws-sdk");
+      const { Document, Packer, Paragraph } = require('docx');
+      const pdfParse = require('pdf-parse');
+
+      // AWS S3 configuration
+      const s3 = new AWS.S3({
+          accessKeyId: "{{ secret('AWS_ACCESS_KEY_ID') }}",
+          secretAccessKey: "{{ secret('AWS_SECRET_ACCESS_KEY') }}",
+          region: "{{ secret('AWS_REGION') }}"
+      });
+
+      // Download the file from a given URL
+      const downloadFileFromURL = async (fileUrl, filename, authHeader) => {
+          return new Promise(async (resolve, reject) => {
+              try {
+                  const downloadsDir = 'downloads';
+                  if (!fs.existsSync(downloadsDir)) {
+                      fs.mkdirSync(downloadsDir, { recursive: true });
+                  }
+
+                  const response = await axios.get(fileUrl, {
+                      responseType: 'stream',
+                      headers: {
+                          Authorization: `Basic ${Buffer.from(authHeader).toString('base64')}`,
+                      },
+                  });
+
+                  const fileExtension = '.pdf'; // Assuming the input is always a PDF
+                  const finalFileName = filename + fileExtension;
+                  const tempFilePath = path.join(downloadsDir, finalFileName);
+
+                  const writer = fs.createWriteStream(tempFilePath);
+                  response.data.pipe(writer);
+
+                  writer.on('finish', () => {
+                      console.log(`File downloaded successfully to ${tempFilePath}`);
+                      resolve(tempFilePath);
+                  });
+
+                  writer.on('error', (err) => {
+                      console.error('Error writing file:', err);
+                      reject(err);
+                  });
+              } catch (error) {
+                  console.error('Error downloading the file:', error);
+                  reject(error);
+              }
+          });
+      };
+
+      // Upload file to S3
+      const uploadToS3 = async (filePath, bucketName) => {
+          const fileContent = fs.readFileSync(filePath);
+          const fileName = path.basename(filePath);
+
+          const params = {
+              Bucket: bucketName,
+              Key: `processed/${fileName}`,
+              Body: fileContent
+          };
+
+          const data = await s3.upload(params).promise();
+          console.log(`File uploaded successfully to ${data.Location}`);
+          return data.Location;
+      };
+
+      // Function to extract text from PDF
+      const convertTextFromPDF = async (pdfPath, textOutputPath) => {
+          const pdfBuffer = fs.readFileSync(pdfPath);
+          const { text } = await pdfParse(pdfBuffer);
+
+          fs.writeFileSync(textOutputPath, text);
+          console.log(`Extracted text saved to: ${textOutputPath}`);
+          return textOutputPath;
+      };
+
+      // Function to convert PDF to DOCX
+      const convertPDFToDOCX = async (pdfPath, docxOutputPath) => {
+          const pdfBuffer = fs.readFileSync(pdfPath);
+          const { text } = await pdfParse(pdfBuffer);
+
+          const paragraphs = text.split('\n').map((line) => new Paragraph(line.trim()));
+          const doc = new Document({
+              sections: [{ children: paragraphs }],
+          });
+
+          const docxBuffer = await Packer.toBuffer(doc);
+          fs.writeFileSync(docxOutputPath, docxBuffer);
+          console.log(`PDF converted to DOCX and saved to: ${docxOutputPath}`);
+          return docxOutputPath;
+      };
+
+      // Function to send media with a message using Twilio
+      const sendMedia = async (to, url, message = "success!") => {
+          try {
+              const twilio = require('twilio');
+              const client = new twilio(
+                  "{{ secret('TWILIO_ACCOUNT_SID') }}",
+                  "{{ secret('TWILIO_AUTH_TOKEN') }}"
+              );
+
+              console.log("url inside sendMedia: ", url);
+              const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+              const msg = await client.messages.create({
+                  from: 'whatsapp:{{ secret("TWILIO_WHATSAPP_NUMBER") }}',
+                  body: message,
+                  mediaUrl: url,
+                  to: formattedTo,
+              });
+              console.log(`Message sent successfully! SID: ${msg.sid}`);
+          } catch (err) {
+              console.error(`Failed to send message: ${err.message}`);
+          }
+      };
+
+      // Main function
+      async function main() {
+          try {
+              const tbody = {{trigger.body}}; // Replace with actual input handling
+              const url = tbody["url"];
+              const authHeader = tbody["authHeader"];
+              const filename = tbody["filename"];
+              const operation = tbody["operation"]; // 'text' or 'docx'
+              const tp = tbody["phone"];
+              const bucketName = "{{ secret('S3_BUCKET_NAME') }}";
+
+              const downloadedFilePath = await downloadFileFromURL(url, filename, authHeader);
+
+              let outputFilePath;
+
+              // Perform operation based on the user's request
+              switch (operation.toLowerCase()) {
+                  case 'text':
+                      outputFilePath = downloadedFilePath.replace(/\.\w+$/, '.txt');
+                      await convertTextFromPDF(downloadedFilePath, outputFilePath);
+                      break;
+                  case 'docx':
+                      outputFilePath = downloadedFilePath.replace(/\.\w+$/, '.docx');
+                      await convertPDFToDOCX(downloadedFilePath, outputFilePath);
+                      break;
+                  default:
+                      throw new Error(`Unsupported operation: ${operation}`);
+              }
+
+              // Upload the processed file to S3
+              const s3FileUrl = await uploadToS3(outputFilePath, bucketName);
+
+              // Send media with the URL to the specified phone number
+              await sendMedia(tp, s3FileUrl);
+          } catch (error) {
+              console.error('Error in main function:', error);
+          }
+      }
+
+      main();
+triggers:
+  - id: pdf_converter
+    type: io.kestra.plugin.core.trigger.Webhook
+    description: converts the pdf into different formats.
+    key: pdf

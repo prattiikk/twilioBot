@@ -1,0 +1,167 @@
+id: img_converter
+namespace: controller
+tasks:
+  - id: image_converter
+    type: io.kestra.plugin.scripts.node.Script
+    description: Converts the images into different formats.
+    beforeCommands:
+      - npm i aws-sdk axios sharp tesseract
+    script: |
+      const fs = require('fs');
+      const path = require('path');
+      const axios = require('axios');
+      const AWS = require("aws-sdk");
+      const sharp = require('sharp');
+      const Tesseract = require('tesseract.js');
+
+      // AWS S3 configuration
+      const s3 = new AWS.S3({
+          accessKeyId: "{{ secret('AWS_ACCESS_KEY_ID') }}",
+          secretAccessKey: "{{ secret('AWS_SECRET_ACCESS_KEY') }}",
+          region: "{{ secret('AWS_REGION') }}"
+      });
+
+      // Download the file from a given URL
+      const downloadFileFromURL = async (fileUrl, filename, authHeader) => {
+          return new Promise(async (resolve, reject) => {
+              try {
+                  const downloadsDir = 'downloads';
+                  if (!fs.existsSync(downloadsDir)) {
+                      fs.mkdirSync(downloadsDir, { recursive: true });
+                  }
+
+                  const response = await axios.get(fileUrl, {
+                      responseType: 'stream',
+                      headers: {
+                          Authorization: `Basic ${Buffer.from(authHeader).toString('base64')}`,
+                      },
+                  });
+
+                  const contentType = response.headers['content-type'];
+                  const mimeTypeToExtension = {
+                      'image/jpeg': '.jpeg',
+                      'image/png': '.png',
+                      'image/webp': '.webp',
+                      'image/jpg': '.jpg',
+                  };
+
+                  const fileExtension = mimeTypeToExtension[contentType] || '.bin';
+                  const finalFileName = filename + fileExtension;
+                  const tempFilePath = path.join(downloadsDir, finalFileName);
+
+                  const writer = fs.createWriteStream(tempFilePath);
+                  response.data.pipe(writer);
+
+                  writer.on('finish', () => {
+                      console.log(`File downloaded successfully to ${tempFilePath}`);
+                      resolve(tempFilePath);
+                  });
+
+                  writer.on('error', (err) => {
+                      console.error('Error writing file:', err);
+                      reject(err);
+                  });
+              } catch (error) {
+                  console.error('Error downloading the file:', error);
+                  reject(error);
+              }
+          });
+      };
+
+      // Upload file to S3
+      const uploadToS3 = async (filePath, bucketName) => {
+          const fileContent = fs.readFileSync(filePath);
+          const fileName = path.basename(filePath);
+
+          const params = {
+              Bucket: bucketName,
+              Key: `trash/${fileName}`,
+              Body: fileContent
+          };
+
+          const data = await s3.upload(params).promise();
+          console.log(`File uploaded successfully to ${data.Location}`);
+          return data.Location;
+      };
+
+      // Image conversion functions
+      const convertImage = async (inputPath, outputPath, format) => {
+          try {
+              const supportedFormats = ['jpg', 'jpeg', 'png', 'webp'];
+              if (!supportedFormats.includes(format.toLowerCase())) {
+                  throw new Error(`Unsupported format. Choose from: ${supportedFormats.join(', ')}`);
+              }
+
+              await sharp(inputPath)
+                  .toFormat(format)
+                  .toFile(outputPath);
+
+              console.log(`Image successfully converted to ${format} and saved at ${outputPath}`);
+              return outputPath;
+          } catch (error) {
+              console.error(`Error converting image: ${error.message}`);
+              throw error;
+          }
+      };
+
+      // Function to send media with a message using Twilio
+      const sendMedia = async (to, url, message = "success!") => {
+          try {
+              const twilio = require('twilio');
+              const client = new twilio(
+                  "{{ secret('TWILIO_ACCOUNT_SID') }}",
+                  "{{ secret('TWILIO_AUTH_TOKEN') }}"
+              );
+
+              console.log("url inside sendMedia: ", url);
+              const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+              const msg = await client.messages.create({
+                  from: 'whatsapp:{{ secret("TWILIO_WHATSAPP_NUMBER") }}',
+                  body: message,
+                  mediaUrl: url,
+                  to: formattedTo,
+              });
+              console.log(`Message sent successfully! SID: ${msg.sid}`);
+          } catch (err) {
+              console.error(`Failed to send message: ${err.message}`);
+          }
+      };
+
+      // Main function
+      async function main() {
+          try {
+              const tbody = {{trigger.body}}; // Replace with actual input handling
+              const url = tbody["url"];
+              const authHeader = tbody["authHeader"];
+              const filename = tbody["filename"];
+              const format = tbody["format"];
+              const tp = tbody["phone"];
+              const bucketName = "{{ secret('S3_BUCKET_NAME') }}";
+
+              const downloadedFilePath = await downloadFileFromURL(url, filename, authHeader);
+
+              const outputFilePath = downloadedFilePath.replace(/\.\w+$/, `.${format}`);
+
+              // Perform conversion based on the requested format
+              if (['jpg', 'jpeg', 'png', 'webp'].includes(format.toLowerCase())) {
+                  await convertImage(downloadedFilePath, outputFilePath, format);
+              } else {
+                  throw new Error(`Unsupported format: ${format}`);
+              }
+
+              // Upload the converted file to S3
+              const s3FileUrl = await uploadToS3(outputFilePath, bucketName);
+
+              // Send media with the URL to the specified phone number
+              await sendMedia(tp, s3FileUrl);
+          } catch (error) {
+              console.error('Error in main function:', error);
+          }
+      }
+
+      main();
+triggers:
+  - id: img_convert
+    type: io.kestra.plugin.core.trigger.Webhook
+    description: Converts the images into different formats.
+    key: img

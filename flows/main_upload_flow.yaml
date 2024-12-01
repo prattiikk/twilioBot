@@ -1,0 +1,370 @@
+id: webhook-logger
+namespace: webhooks
+
+tasks:
+  - id: body-logs
+    type: io.kestra.plugin.scripts.node.Script
+    script: |
+      const twilioBody = {{trigger.body}};
+
+      // Extract basic user information
+      const phoneNumber = twilioBody["From"] || null;
+      const profileName = twilioBody["ProfileName"] || null;
+
+      // File-related information extraction
+      const mediaUrl = twilioBody["MediaUrl0"] || null;
+      const mediaType = twilioBody["MediaContentType0"] || null;
+
+      // Extension extraction helper
+      const extractFileExtension = (mimeType) => {
+          const extensionMap = {
+              'application/pdf': 'pdf',
+              'application/docx': 'docx',
+              'image/jpeg': 'jpg',
+              'image/png': 'png',
+              'text/plain': 'txt'
+          };
+          return extensionMap[mimeType] || mimeType?.split('/')[1] || 'unknown';
+      };
+
+      // Metadata object construction
+      const extractedMetadata = {
+          user: {
+              phone_number: phoneNumber,
+              name: profileName,
+              whatsapp_id: twilioBody["WaId"] || null,
+              created_at: new Date()
+          },
+          file: {
+              user_id: 1,
+              file_size: 0,
+              upload_timestamp: new Date(),
+              total_pages: null,
+              last_accessed_timestamp: null,
+              total_access_count: 0,
+              keywords: [],
+              body: twilioBody["Body"] || null,
+              generated_tags: [],
+              original_filename: `file_${Date.now()}`,
+              file_extension: extractFileExtension(mediaType),
+              mime_type: mediaType,
+              s3_url: null,
+              document_summary: null
+          }
+      };
+
+      console.log(extractedMetadata);
+
+  - id: s3_upload
+    type: io.kestra.plugin.scripts.node.Script
+    description: Uploads file to S3 and logs its public URL
+    beforeCommands:
+      - npm install axios aws-sdk fs
+    outputFiles:
+      - output.json
+    script: |
+      const axios = require('axios');
+      const AWS = require('aws-sdk');
+      const fs = require('fs');
+      const path = require('path');
+
+      // Initialize the S3 service object
+      const s3 = new AWS.S3({
+        accessKeyId: '{{ secret('AWS_ACCESS_KEY_ID') }}',
+        secretAccessKey: '{{ secret('AWS_SECRET_ACCESS_KEY') }}',
+        region: '{{ secret('AWS_REGION') }}'
+      });
+
+      // Function to download the file from a given URL
+      const downloadFileFromURL = async (fileUrl, authHeader, filename) => {
+        try {
+          const response = await axios.get(fileUrl, {
+            responseType: 'stream',
+            headers: {
+              Authorization: `Basic ${Buffer.from(authHeader).toString('base64')}`,
+            },
+          });
+
+          const fileName = filename;
+          const tempFilePath = path.join(__dirname, fileName);
+          const writer = fs.createWriteStream(tempFilePath);
+
+          response.data.pipe(writer);
+
+          writer.on('finish', () => {
+            console.log('File downloaded successfully');
+            uploadFileToS3(tempFilePath);
+          });
+
+          writer.on('error', (err) => {
+            console.error('Error writing file:', err);
+          });
+        } catch (error) {
+          console.error('Error downloading the file:', error);
+        }
+      };
+
+      // Function to upload the downloaded file to S3
+      const uploadFileToS3 = (filePath) => {
+        const fileStream = fs.createReadStream(filePath);
+        const fileName = path.basename(filePath);
+
+        const uploadParams = {
+          Bucket: '{{ secret('S3_BUCKET_NAME') }}',
+          Key: `uploads/${fileName}`,
+          Body: fileStream,
+        };
+
+        s3.upload(uploadParams, (err, data) => {
+          if (err) {
+            console.error('Error uploading file:', err);
+          } else {
+            console.log('File uploaded successfully');
+            console.log('File URL:', data.Location);
+            
+            writeOutputJson(data.Location);
+
+            fs.unlink(filePath, (unlinkErr) => {
+              if (unlinkErr) {
+                console.error('Error deleting temp file:', unlinkErr);
+              } else {
+                console.log('Temporary file deleted successfully');
+              }
+            });
+          }
+        });
+      };
+
+      // Function to write the file URL to output.json
+      const writeOutputJson = (fileUrl) => {
+        const outputData = { fileUrl };
+
+        fs.writeFile("output.json", JSON.stringify(outputData, null, 2), (err) => {
+          if (err) {
+            console.error('Error writing to output.json:', err);
+          } else {
+            console.log('File URL written to output.json successfully');
+          }
+        });
+      };
+
+      const body = {{trigger.body}};
+      const twilioFileUrl = body["fileUrl"];
+      const filename = body["fileName"]
+      console.log(twilioFileUrl);
+      console.log(filename);
+
+      const authHeader = '{{ secret('TWILIO_AUTH_HEADER') }}';
+
+      downloadFileFromURL(twilioFileUrl, authHeader, filename);
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+
+  - id: update_relational_database
+    type: io.kestra.plugin.scripts.node.Script
+    description: Updates relational database and sends downloaded URL back to user
+    beforeCommands:
+      - npm i twilio pg
+    inputFiles:
+      output.json: "{{ outputs.s3_upload.outputFiles['output.json'] }}"
+    script: |
+      const fs = require('fs');
+      const path = require('path');
+      const { Pool } = require('pg');
+      const twilio = require('twilio');
+
+      // Twilio credentials
+      const accountSid = '{{ secret('TWILIO_ACCOUNT_SID') }}';
+      const authToken = '{{ secret('TWILIO_AUTH_TOKEN') }}';
+      const fromPhoneNumber = '{{ secret('TWILIO_FROM_PHONE_NUMBER') }}';
+      const client = new twilio(accountSid, authToken);
+
+      // PostgreSQL connection configuration
+      const pool = new Pool({
+        user: '{{ secret('DB_USER') }}',
+        password: '{{ secret('DB_PASSWORD') }}',
+        host: '{{ secret('DB_HOST') }}',
+        port: '{{ secret('DB_PORT') }}',
+        database: '{{ secret('DB_NAME') }}',
+        ssl: {
+          rejectUnauthorized: true,
+          ca: '{{ secret('DB_SSL_CERT') }}'
+        }
+      });
+      // Function to read the URL from output.json
+      const getS3UrlFromJson = () => {
+          try {
+              const outputData = JSON.parse(fs.readFileSync('output.json', 'utf8'));
+              return outputData.fileUrl;
+          } catch (error) {
+              console.error('Error reading output.json:', error);
+              return null;
+          }
+      };
+
+      // Function to retrieve user information based on phone number
+      const getUserByPhoneNumber = async (phoneNumber) => {
+          try {
+              const result = await pool.query(
+                  'SELECT * FROM users WHERE phone_number = $1',
+                  [phoneNumber]
+              );
+              return result.rows[0]; // Return the user record if found
+          } catch (error) {
+              console.error('Error fetching user by phone number:', error);
+              return null;
+          }
+      };
+
+      // Function to add a new file record for a user
+      const addFileForUser = async (userId, fileData) => {
+          try {
+              await pool.query(
+                  'INSERT INTO files (user_id, file_size, upload_timestamp, original_filename, file_extension, mime_type, s3_url) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+                  [
+                      userId,
+                      fileData.file_size,
+                      fileData.upload_timestamp,
+                      fileData.original_filename,
+                      fileData.file_extension,
+                      fileData.mime_type,
+                      fileData.s3_url,
+                  ]
+              );
+              console.log('File added successfully for user:', userId);
+          } catch (error) {
+              console.error('Error adding file for user:', error);
+          }
+      };
+
+      // Function to send a WhatsApp message with the file URL
+      const sendMessage = async (to, message, mediaUrl) => {
+          try {
+              // Validate the inputs
+              if (!to) {
+                  throw new Error('Phone number is required');
+              }
+
+              // Ensure either message or mediaUrl is present but not both null
+              if (!message && !mediaUrl) {
+                  throw new Error('Either "message" or "mediaUrl" must be provided');
+              }
+
+              // // Define the URL to send the POST request to
+              // const url = 'http://localhost:8080/api/v1/executions/webhook/kestra_project/twilio_msg/send_msg'; // Replace with your actual URL
+
+
+
+              // Prepare the request body
+              const requestBody = {
+                  from: 'whatsapp:+14155238886',
+                  to: to,
+                  body: message, // Can be null if mediaUrl is present
+                  mediaUrl: mediaUrl, // Can be null if message is present
+              };
+              
+              console.log("request body \n", requestBody);
+
+              // Send the message
+              const response = await client.messages.create(requestBody);
+              console.log(response)
+
+
+          } catch (error) {
+              if (error.code) {
+                  console.error(`Twilio Error (${error.code}): ${error.message}`);
+              } else {
+                  console.error('Unexpected Error:', error);
+              }
+          }
+      };
+
+      // Function to process Twilio data
+      const processTwilioData = () => {
+      const triggerBody = {{ trigger.body }}
+      const phoneNumber = triggerBody["From"] || null;
+      const profileName = triggerBody["ProfileName"] || null;
+      const mediaUrl = triggerBody["MediaUrl0"] || null;
+      const mediaType = triggerBody["MediaContentType0"] || null;
+
+      const extractFileExtension = (mimeType) => {
+          const extensionMap = {
+              'application/pdf': 'pdf',
+              'application/docx': 'docx',
+              'image/jpeg': 'jpg',
+              'image/png': 'png',
+              'text/plain': 'txt',
+          };
+          return extensionMap[mimeType] || mimeType?.split('/')[1] || 'unknown';
+      };
+
+      return {
+          user: {
+              phone_number: phoneNumber,
+              name: profileName,
+              whatsapp_id: triggerBody["WaId"] || null,
+              created_at: new Date(),
+          },
+          file: {
+              file_size: 0, // Placeholder; update as necessary
+              upload_timestamp: new Date(),
+              original_filename: triggerBody["fileName"],
+              file_extension: extractFileExtension(mediaType),
+              mime_type: mediaType,
+              s3_url: getS3UrlFromJson(),
+          },
+      };
+      };
+
+      // Main function
+      const main = async (req) => {
+          const twilioData = processTwilioData();
+          const phoneNumber = twilioData.user.phone_number;
+
+          const s3Url = getS3UrlFromJson();
+          if (!s3Url) {
+              console.error('Failed to retrieve the S3 URL from output.json.');
+              return;
+          }
+
+          let user = await getUserByPhoneNumber(phoneNumber);
+
+          if (user) {
+              // User exists, add a new file record for the user
+              await addFileForUser(user.user_id, twilioData.file);
+          } else {
+              // User does not exist, create a new user
+              try {
+                  const result = await pool.query(
+                      'INSERT INTO users (phone_number, name, whatsapp_id, created_at) VALUES ($1, $2, $3, $4) RETURNING user_id',
+                      [
+                          twilioData.user.phone_number,
+                          twilioData.user.name,
+                          twilioData.user.whatsapp_id,
+                          twilioData.user.created_at,
+                      ]
+                  );
+                  user = { id: result.rows[0].user_id };
+                  console.log('New user created with ID:', user.id);
+
+                  // Add file for the new user
+                  await addFileForUser(user.id, twilioData.file);
+              } catch (error) {
+                  console.error('Error creating new user:', error);
+                  return;
+              }
+          }
+
+          // Send a WhatsApp message with the file URL
+          const message = 'This is your file. Please find the link attached below.';
+          sendMessage(phoneNumber, message, s3Url);
+      };
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+
+triggers:
+  - id: example-trigger
+    type: io.kestra.plugin.core.trigger.Webhook
+    description: Webhook trigger for Twilio messages
+    key: twilio
+    logToFile: false

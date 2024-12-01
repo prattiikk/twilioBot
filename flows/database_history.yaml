@@ -1,0 +1,52 @@
+id: s3_file_history
+namespace: s3
+
+tasks:
+
+  - id: get_files_list
+    type: io.kestra.plugin.scripts.node.Script
+    description: this will return a list of files user has.
+    beforeCommands:
+      - npm i twilio pg
+    script: |-
+      const fs = require('fs');
+      const pg = require('pg');
+      const url = require('url');
+      const body = {{trigger.body}}
+
+      let phone_no = body["phone_number"];
+
+
+
+      const config = {
+          user: "avnadmin",
+          password: "AVNS_zp-Iqm9Qy4kic0E3Agz",
+          host: "kestra-record-kestra-bot.e.aivencloud.com",
+          port: 12743,
+          database: "defaultdb",
+          ssl: {
+              rejectUnauthorized: true,
+              ca: "{{ secret('CERTIFICATE') }}",
+          },
+      };
+      const client = new pg.Client(config);
+      client.connect(function (err) {
+          if (err) throw err;
+
+          // Use a SQL query to list tables
+          client.query(
+              `SELECT original_filename from files,users where users.phone_number='${phone_no}' AND files.user_id=users.user_id;`,
+              [],
+              function (err, result) {
+                  if (err) throw err;
+
+                  console.log("Tables:", result.rows);
+
+                  client.end(function (err) {
+                      if (err) throw err;
+                  });
+              }
+          );
+      });
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker

@@ -4,11 +4,11 @@ const url = require('url');
 const dotenv = require("dotenv").config();
 
 const config = {
-    user: "avnadmin",
-    password: "AVNS_zp-Iqm9Qy4kic0E3Agz",
-    host: "kestra-record-kestra-bot.e.aivencloud.com",
-    port: 12743,
-    database: "defaultdb",
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    database: process.env.DB_NAME,
     ssl: {
         rejectUnauthorized: true,
         ca: process.env.DB_CERTIFICATE,
