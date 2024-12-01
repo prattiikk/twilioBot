@@ -13,8 +13,6 @@ async function convertTextFromPDF(pdfPath, textOutputPath) {
     return text;
 }
 
-// Function to extract images from PDF
-
 
 // Function to convert PDF to DOCX
 async function convertPDFToDOCX(pdfPath, docxOutputPath) {
@@ -32,3 +30,5 @@ async function convertPDFToDOCX(pdfPath, docxOutputPath) {
 }
 
 module.exports={convertPDFToDOCX,convertTextFromPDF}
+
+
