@@ -17,6 +17,7 @@ const {
 } = require('./conversions/ImgConversions');
 const { uploadFileToS3 } = require('./utils/s3');
 const { convertPDFToDOCX, convertTextFromPDF } = require('./conversions/pdfConversions');
+const { performRAGQuery } = require('./utils/openai');
 // Load environment variables
 dotenv.config();
 
@@ -41,6 +42,30 @@ const client = twilio(accountSid, authToken);
 
 // In-memory store to track file uploads by sender
 const userRequests = {};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Function to send a message
 async function sendMessage(to, message) {
@@ -80,7 +105,8 @@ function sendFileMenu(to) {
     client.messages
       .create({
         from: 'whatsapp:+14155238886',
-        contentSid: 'HX48616562cd2739a84633025b1bc23d86',
+        // contentSid: 'HX48616562cd2739a84633025b1bc23d86',
+        contentSid: "HXd2167e5e74529ff720476c54b7423e22",
         to: formattedTo,
       })
       .then((message) => console.log(`Menu sent with SID: ${message.sid}`))
@@ -151,6 +177,34 @@ Goal: Make file management easy and quick
   }
 }
 
+
+
+
+
+async function handleAiMode({ From, Body }) {
+  try {
+    if (Body.toLowerCase() === 'exit') {
+      userRequests[From].status = 'fileNamed';
+      await sendMessage(From, "AI mode deactivated. Returning to main menu.");
+      sendFileMenu(From);
+      return;
+    }
+
+    const response = await performRAGQuery(
+       userRequests[From].filePath,
+       Body,
+    );
+    await sendMessage(From, response);
+  } catch (error) {
+    console.error("AI Mode Error:", error);
+    await sendMessage(From, "An error occurred. Please try again or type 'exit' to return to the main menu.");
+  }
+}
+
+
+
+
+
 // Webhook route to handle incoming WhatsApp messages
 app.post('/webhook', async (req, res) => {
   try {
@@ -163,6 +217,12 @@ app.post('/webhook', async (req, res) => {
     if (!userRequests[From]) {
       userRequests[From] = { status: 'idle' };
     }
+
+    if (userRequests[From]?.status === 'aiMode') {
+      await handleAiMode({ From, Body });
+      return res.status(200).send("OK");
+    }
+
 
     switch (userRequests[From].status) {
       case 'idle':
@@ -192,7 +252,13 @@ app.post('/webhook', async (req, res) => {
         } else {
           await sendMessage(From, "Please provide a name for your file.");
         }
+
         break;
+
+
+
+
+
 
       case 'fileNamed':
         switch (Body.toLowerCase()) {
@@ -217,6 +283,56 @@ app.post('/webhook', async (req, res) => {
               delete userRequests[From];
             }
             break;
+
+
+
+
+
+          case "ai":
+            const type = userRequests[From].MediaContentType0 == "application/pdf"
+            if (type) {
+              console.log("before conversion")
+              const url = userRequests[From].MediaUrl0;
+              const name = userRequests[From].fileName
+              deleteAllFilesInFolder(path.join(__dirname, "downloads"));
+              const filePath = await downloadFileFromURL(url, name)
+              userRequests[From].filePath = filePath;
+              console.log("file path for ai : ", filePath)
+              userRequests[From].status = 'aiMode';
+              await sendMessage(From, "AI mode activated. You can now ask questions about your document.");
+            }
+            else {
+              await sendMessage(From, "please uplaod a pdf document to use this mode.");
+            }
+            break;
+
+          case 'aiMode':
+            try {
+              // Check for exit command
+              if (Body.toLowerCase() === 'exit') {
+                await sendMessage(From, "AI mode deactivated. Returning to main menu.");
+                userRequests[From].status = 'fileNamed';
+                sendFileMenu(From);
+                break;
+              }
+
+              // Perform RAG query
+              const ragResponse = await performRAGQuery(
+                userRequests[From].filePath,
+                Body,
+              );
+
+              // Send response to user
+              await sendMessage(From, ragResponse);
+            } catch (error) {
+              console.error('RAG Query Error:', error);
+              await sendMessage(From, "Sorry, there was an error processing your query. Please try again or type 'exit' to return to the main menu.");
+            }
+            break;
+
+
+
+
 
           case 'convert':
             console.log("File type is:", userRequests[From].MediaContentType0);
@@ -261,6 +377,10 @@ app.post('/webhook', async (req, res) => {
             break;
         }
         break;
+
+
+
+
 
       case 'pdfConversionMenu':
         switch (Body.trim()) {
