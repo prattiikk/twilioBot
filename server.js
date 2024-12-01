@@ -5,22 +5,9 @@ const dotenv = require('dotenv');
 const axios = require('axios');
 const twilio = require("twilio")
 const { downloadFileFromURL, deleteAllFilesInFolder } = require('./utils/downloader');
-const { docxToHtml, docxToTxt, docxToPdf, docxToMarkdown } = require('./conversions/docsConversions');
-const { convertPDFToDOCX, convertTextFromPDF } = require('./conversions/pdf.js')
 const { getList, getUrl } = require('./utils/list.js')
-const {
-  toJpg,
-  toJpeg,
-  toPng,
-  toWebp,
-  compressImage,
-  convertImageToBlackAndWhite
-} = require('./conversions/ImgConversions');
-const { uploadFileToS3 } = require('./utils/s3');
 const { performRAGQuery } = require('./utils/llm.js');
 const { sendMedia, sendMenu, sendMessage } = require('./utils/twilioMsg.js');
-const { replyAsABotToThisUserQuery } = require('./utils/reply.js');
-const status = require('statuses');
 
 // Load environment variables
 dotenv.config();
@@ -256,9 +243,9 @@ app.post('/webhook', async (req, res) => {
             console.log("before conversion")
             const url = userRequests[From].MediaUrl0;
             const name = userRequests[From].fileName
-            deleteAllFilesInFolder(path.join(__dirname, "downloads"));
-            const filePath = await downloadFileFromURL(url, name)
-            userRequests[From].filePath = filePath;
+            // deleteAllFilesInFolder(path.join(__dirname, "downloads"));
+            // const filePath = await downloadFileFromURL(url, name)
+            // userRequests[From].filePath = filePath;
             console.log("after conversion path : ", filePath)
 
             switch (userRequests[From].MediaContentType0) {
@@ -296,31 +283,51 @@ app.post('/webhook', async (req, res) => {
       case 'pdfConversionMenu':
         switch (Body.trim()) {
           case 'word':
-            let wordpath = userRequests[From].filePath.replace('.pdf', '.docx')
-            // await pdfToDocx(userRequests[From].MediaUrl0);
-            await convertPDFToDOCX(userRequests[From].filePath, wordpath)
             try {
-              const fileUrl = await uploadFileToS3(userRequests[From].filePath.replace('.pdf', '.docx')); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, `file available at : ${fileUrl} `)
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                operation: 'docx',
+                phone: From
+              };
+
+              axios.post(process.env.PDF_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
+
+
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "PDF converted to DOCX successfully.");
             delete userRequests[From];
             break;
           case 'text':
-            // await pdfToText(userRequests[From].MediaUrl0);
-            const textpath = userRequests[From].filePath.replace('.pdf', '.txt')
-            await convertTextFromPDF(userRequests[From].filePath, textpath)
             try {
-              const fileUrl = await uploadFileToS3(userRequests[From].filePath.replace('.pdf', '.txt')); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, `file available at : ${fileUrl} `)
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                operation: 'text',
+                phone: From
+              };
+
+              axios.post(process.env.PDF_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
+
+
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "PDF converted to Text successfully.");
             delete userRequests[From];
             break;
           default:
@@ -332,14 +339,21 @@ app.post('/webhook', async (req, res) => {
         switch (Body.trim()) {
 
           case 'pdf':
-            let inputPath = userRequests[From].filePath;
-            let outputPath = userRequests[From].filePath.replace('.docx', '.pdf')
-            await docxToPdf(inputPath, outputPath);
-            // await sendMessage(From, "Word document converted to PDF successfully.");
             try {
-              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Word document converted to PDF successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'pdf',
+                tp: From
+              };
+              axios.post(process.env.DOC_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
@@ -347,51 +361,63 @@ app.post('/webhook', async (req, res) => {
             break;
 
           case 'text':
-            // Convert the DOCX to Text
-            inputPath = userRequests[From].filePath;
-            outputPath = userRequests[From].filePath.replace('.docx', '.txt')
-            await docxToTxt(inputPath, outputPath);
-            // await sendMessage(From, "Word document converted to Text successfully.");
             try {
-              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Word document converted to Text successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'txt',
+                tp: From
+              };
+              axios.post(process.env.DOC_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            delete userRequests[From];
             break;
 
           case 'html':
             // Convert the DOCX to HTML
-            inputPath = userRequests[From].filePath;
-            outputPath = userRequests[From].filePath.replace('.docx', '.html')
-            await docxToHtml(inputPath, outputPath);
             try {
-              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Word document converted to html successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'html',
+                tp: From
+              };
+              axios.post(process.env.DOC_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "Word document converted to HTML successfully.");
             delete userRequests[From];
             break;
 
-          case 'markdown':
-            // Convert the DOCX to Markdown
-            inputPath = userRequests[From].filePath;
-            outputPath = userRequests[From].filePath.replace('.docx', '.md')
-            await docxToMarkdown(inputPath, outputPath);
-            try {
-              const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Word document converted to Markdown successfully.")
-            } catch (error) {
-              console.error('File upload failed:', error);
-            }
-            // await sendMessage(From, "Word document converted to MARKDOWN successfully.");
-            break;
+          // case 'markdown':
+          //   // Convert the DOCX to Markdown
+          //   inputPath = userRequests[From].filePath;
+          //   outputPath = userRequests[From].filePath.replace('.docx', '.md')
+          //   await docxToMarkdown(inputPath, outputPath);
+          //   try {
+          //     const fileUrl = await uploadFileToS3(outputPath); // Upload the file and get the URL
+          //     console.log('File is available at:', fileUrl); // Use the URL
+          //     sendMedia(From, fileUrl, "Word document converted to Markdown successfully.")
+          //   } catch (error) {
+          //     console.error('File upload failed:', error);
+          //   }
+          //   // await sendMessage(From, "Word document converted to MARKDOWN successfully.");
+          //   break;
 
           default:
             await sendMessage(From, "Something went wrong. Please choose a valid option.");
@@ -405,91 +431,119 @@ app.post('/webhook', async (req, res) => {
         switch (Body.trim()) {
           // Format Conversions
           case 'jpg':
-            // Convert to JPG
-            const jpgPath = path.join(outputDir, `converted-${Date.now()}.jpg`);
-            await toJpg(filePath, jpgPath);
             try {
-              const fileUrl = await uploadFileToS3(jpgPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Image converted to JPG successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'jpg',
+                phone: From
+              };
+              axios.post(process.env.IMG_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "Image converted to JPG successfully.");
             delete userRequests[From];
             break;
           case 'jpeg':
-            // Convert to JPEG
-            const jpegPath = path.join(outputDir, `converted-${Date.now()}.jpeg`);
-            await toJpeg(filePath, jpegPath);
             try {
-              const fileUrl = await uploadFileToS3(jpegPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Image converted to JPEG successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'jpeg',
+                phone: From
+              };
+              axios.post(process.env.IMG_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "Image converted to JPEG successfully.");
             delete userRequests[From];
             break;
           case 'png':
-            // Convert to PNG
-            const pngPath = path.join(outputDir, `converted-${Date.now()}.png`);
-            await toPng(filePath, pngPath);
             try {
-              const fileUrl = await uploadFileToS3(pngPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Image converted to PNG successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'png',
+                phone: From
+              };
+              axios.post(process.env.IMG_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "Image converted to PNG successfully.");
             delete userRequests[From];
             break;
           case 'webp':
-            // Convert to WebP
-            const webpPath = path.join(outputDir, `converted-${Date.now()}.webp`);
-            await toWebp(filePath, webpPath);
             try {
-              const fileUrl = await uploadFileToS3(webpPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Image converted to WEBP successfully.")
+              const body = {
+                url: userRequests[From].MediaUrl0,
+                authHeader: process.env.TWILIO_HEADER,
+                filename: userRequests[From].fileName,
+                format: 'webp',
+                phone: From
+              };
+              axios.post(process.env.IMG_URL, body)
+                .then((response) => {
+                  console.log('Script called successfully:', response.data);
+                })
+                .catch((error) => {
+                  console.error('Error calling the script:', error.response?.data || error.message);
+                });
             } catch (error) {
               console.error('File upload failed:', error);
             }
-            // await sendMessage(From, "Image converted to WebP successfully.");
             delete userRequests[From];
             break;
 
-          // Image Processing
-          case 'compress':
-            // Compress Image
-            const compressedPath = path.join(outputDir, `compressed-${Date.now()}.jpg`);
-            await compressImage(filePath, compressedPath);
-            try {
-              const fileUrl = await uploadFileToS3(compressedPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Image compressed successfully.")
-            } catch (error) {
-              console.error('File upload failed:', error);
-            }
-            // await sendMessage(From, "Image compressed successfully.");
-            delete userRequests[From];
-            break;
-          case 'black&white':
-            // Convert to Black & White
-            const bwPath = path.join(outputDir, `bw-${Date.now()}.jpg`);
-            await convertImageToBlackAndWhite(filePath, bwPath);
-            try {
-              const fileUrl = await uploadFileToS3(bwPath); // Upload the file and get the URL
-              console.log('File is available at:', fileUrl); // Use the URL
-              sendMedia(From, fileUrl, "Image converted to Black & White successfully.")
-            } catch (error) {
-              console.error('File upload failed:', error);
-            }
-            // await sendMessage(From, "Image converted to Black & White successfully.");
-            delete userRequests[From];
-            break;
+          // // Image Processing
+          // case 'compress':
+          //   // Compress Image
+          //   const compressedPath = path.join(outputDir, `compressed-${Date.now()}.jpg`);
+          //   await compressImage(filePath, compressedPath);
+          //   try {
+          //     const fileUrl = await uploadFileToS3(compressedPath); // Upload the file and get the URL
+          //     console.log('File is available at:', fileUrl); // Use the URL
+          //     sendMedia(From, fileUrl, "Image compressed successfully.")
+          //   } catch (error) {
+          //     console.error('File upload failed:', error);
+          //   }
+          //   // await sendMessage(From, "Image compressed successfully.");
+          //   delete userRequests[From];
+          //   break;
+          // case 'black&white':
+          //   // Convert to Black & White
+          //   const bwPath = path.join(outputDir, `bw-${Date.now()}.jpg`);
+          //   await convertImageToBlackAndWhite(filePath, bwPath);
+          //   try {
+          //     const fileUrl = await uploadFileToS3(bwPath); // Upload the file and get the URL
+          //     console.log('File is available at:', fileUrl); // Use the URL
+          //     sendMedia(From, fileUrl, "Image converted to Black & White successfully.")
+          //   } catch (error) {
+          //     console.error('File upload failed:', error);
+          //   }
+          //   // await sendMessage(From, "Image converted to Black & White successfully.");
+          //   delete userRequests[From];
+          //   break;
 
           default:
             await sendMessage(From, "something went wrong...!");
